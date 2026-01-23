@@ -1,11 +1,15 @@
 use anyhow::{Context, Result};
 use std::process::Command;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum GitCommand {
     Diff,
     Log,
     Status,
+    Add { files: Vec<String> },
+    Commit { message: String },
+    Push,
+    Pull,
 }
 
 pub fn run(cmd: GitCommand, args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()> {
@@ -13,6 +17,10 @@ pub fn run(cmd: GitCommand, args: &[String], max_lines: Option<usize>, verbose: 
         GitCommand::Diff => run_diff(args, max_lines, verbose),
         GitCommand::Log => run_log(args, max_lines, verbose),
         GitCommand::Status => run_status(verbose),
+        GitCommand::Add { files } => run_add(&files, verbose),
+        GitCommand::Commit { message } => run_commit(&message, verbose),
+        GitCommand::Push => run_push(verbose),
+        GitCommand::Pull => run_pull(verbose),
     }
 }
 
@@ -247,6 +255,177 @@ fn run_status(_verbose: u8) -> Result<()> {
 
     if conflicts > 0 {
         println!("⚠️  Conflicts: {} files", conflicts);
+    }
+
+    Ok(())
+}
+
+fn run_add(files: &[String], verbose: u8) -> Result<()> {
+    let mut cmd = Command::new("git");
+    cmd.arg("add");
+
+    if files.is_empty() {
+        cmd.arg(".");
+    } else {
+        for f in files {
+            cmd.arg(f);
+        }
+    }
+
+    let output = cmd.output().context("Failed to run git add")?;
+
+    if verbose > 0 {
+        eprintln!("git add executed");
+    }
+
+    if output.status.success() {
+        // Count what was added
+        let status_output = Command::new("git")
+            .args(["diff", "--cached", "--stat", "--shortstat"])
+            .output()
+            .context("Failed to check staged files")?;
+
+        let stat = String::from_utf8_lossy(&status_output.stdout);
+        if stat.trim().is_empty() {
+            println!("ok (nothing to add)");
+        } else {
+            // Parse "1 file changed, 5 insertions(+)" format
+            let short = stat.lines().last().unwrap_or("").trim();
+            if short.is_empty() {
+                println!("ok ✓");
+            } else {
+                println!("ok ✓ {}", short);
+            }
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        println!("err: {}", stderr.lines().next().unwrap_or("unknown error"));
+    }
+
+    Ok(())
+}
+
+fn run_commit(message: &str, verbose: u8) -> Result<()> {
+    if verbose > 0 {
+        eprintln!("git commit -m \"{}\"", message);
+    }
+
+    let output = Command::new("git")
+        .args(["commit", "-m", message])
+        .output()
+        .context("Failed to run git commit")?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // Extract commit hash from output like "[main abc1234] message"
+        if let Some(line) = stdout.lines().next() {
+            if let Some(hash_start) = line.find(' ') {
+                let hash = line[1..hash_start].split(' ').last().unwrap_or("");
+                if !hash.is_empty() && hash.len() >= 7 {
+                    println!("ok ✓ {}", &hash[..7.min(hash.len())]);
+                    return Ok(());
+                }
+            }
+        }
+        println!("ok ✓");
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let msg = stderr.lines().chain(stdout.lines()).next().unwrap_or("unknown error");
+        if msg.contains("nothing to commit") {
+            println!("ok (nothing to commit)");
+        } else {
+            println!("err: {}", msg);
+        }
+    }
+
+    Ok(())
+}
+
+fn run_push(verbose: u8) -> Result<()> {
+    if verbose > 0 {
+        eprintln!("git push");
+    }
+
+    let output = Command::new("git")
+        .arg("push")
+        .output()
+        .context("Failed to run git push")?;
+
+    if output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // Check if already up to date
+        if stderr.contains("Everything up-to-date") {
+            println!("ok (up-to-date)");
+        } else {
+            // Extract branch info like "main -> main"
+            for line in stderr.lines() {
+                if line.contains("->") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 3 {
+                        println!("ok ✓ {}", parts[parts.len()-1]);
+                        return Ok(());
+                    }
+                }
+            }
+            println!("ok ✓");
+        }
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let msg = stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("unknown error");
+        println!("err: {}", msg);
+    }
+
+    Ok(())
+}
+
+fn run_pull(verbose: u8) -> Result<()> {
+    if verbose > 0 {
+        eprintln!("git pull");
+    }
+
+    let output = Command::new("git")
+        .arg("pull")
+        .output()
+        .context("Failed to run git pull")?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        if stdout.contains("Already up to date") || stdout.contains("Already up-to-date") {
+            println!("ok (up-to-date)");
+        } else {
+            // Count files changed
+            let mut files = 0;
+            let mut insertions = 0;
+            let mut deletions = 0;
+
+            for line in stdout.lines() {
+                if line.contains("file") && line.contains("changed") {
+                    // Parse "3 files changed, 10 insertions(+), 2 deletions(-)"
+                    for part in line.split(',') {
+                        let part = part.trim();
+                        if part.contains("file") {
+                            files = part.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                        } else if part.contains("insertion") {
+                            insertions = part.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                        } else if part.contains("deletion") {
+                            deletions = part.split_whitespace().next().and_then(|n| n.parse().ok()).unwrap_or(0);
+                        }
+                    }
+                }
+            }
+
+            if files > 0 {
+                println!("ok ✓ {} files +{} -{}", files, insertions, deletions);
+            } else {
+                println!("ok ✓");
+            }
+        }
+    } else {
+        let msg = stderr.lines().chain(stdout.lines()).find(|l| !l.trim().is_empty()).unwrap_or("unknown error");
+        println!("err: {}", msg);
     }
 
     Ok(())

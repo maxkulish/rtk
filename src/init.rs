@@ -19,6 +19,10 @@ Remplacer les commandes Unix standard par `rtk` pour minimiser la consommation d
 | `git status` | `rtk git status` |
 | `git log` | `rtk git log` |
 | `git diff` | `rtk git diff` |
+| `git add .` | `rtk git add` |
+| `git commit -m "msg"` | `rtk git commit -m "msg"` |
+| `git push` | `rtk git push` |
+| `git pull` | `rtk git pull` |
 | `cargo test`, `pytest`, `npm test` | `rtk test <cmd>` |
 | `<cmd> 2>&1 \| grep -i error` | `rtk err <cmd>` |
 | `cat file.log` | `rtk log <file>` |
@@ -28,6 +32,7 @@ Remplacer les commandes Unix standard par `rtk` pour minimiser la consommation d
 | `docker ps` | `rtk docker ps` |
 | `kubectl get pods` | `rtk kubectl pods` |
 | `<longue commande>` | `rtk summary <cmd>` |
+| `grep -rn`, `rg` | `rtk grep <pattern>` |
 
 ## Commandes rtk
 
@@ -43,6 +48,11 @@ rtk diff f1.txt f2.txt          # Diff ultra-condensé
 rtk git status                  # Status compact
 rtk git log -n 10               # 10 commits compacts
 rtk git diff                    # Diff compact
+rtk git add                     # Add → "ok ✓"
+rtk git commit -m "msg"         # Commit → "ok ✓ abc1234"
+rtk git push                    # Push → "ok ✓ main"
+rtk git pull                    # Pull → "ok ✓ 3 files"
+rtk grep "pattern"              # Grep groupé par fichier
 
 # Commandes
 rtk test cargo test             # Échecs seuls (-90% tokens)

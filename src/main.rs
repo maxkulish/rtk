@@ -197,6 +197,20 @@ enum GitCommands {
         count: usize,
     },
     Status,
+    /// Add files (minimal output)
+    Add {
+        #[arg(trailing_var_arg = true)]
+        files: Vec<String>,
+    },
+    /// Commit with message (minimal output)
+    Commit {
+        #[arg(short, long)]
+        message: String,
+    },
+    /// Push to remote (minimal output)
+    Push,
+    /// Pull from remote (minimal output)
+    Pull,
 }
 
 #[derive(Subcommand)]
@@ -256,6 +270,18 @@ fn main() -> Result<()> {
             }
             GitCommands::Status => {
                 git::run(git::GitCommand::Status, &[], None, cli.verbose)?;
+            }
+            GitCommands::Add { files } => {
+                git::run(git::GitCommand::Add { files }, &[], None, cli.verbose)?;
+            }
+            GitCommands::Commit { message } => {
+                git::run(git::GitCommand::Commit { message }, &[], None, cli.verbose)?;
+            }
+            GitCommands::Push => {
+                git::run(git::GitCommand::Push, &[], None, cli.verbose)?;
+            }
+            GitCommands::Pull => {
+                git::run(git::GitCommand::Pull, &[], None, cli.verbose)?;
             }
         },
 
