@@ -56,13 +56,23 @@ brew install rtk
 cargo install rtk
 ```
 
+### Debian/Ubuntu
+```bash
+curl -LO https://github.com/pszymkowiak/rtk/releases/latest/download/rtk_0.2.0-1_amd64.deb
+sudo dpkg -i rtk_0.2.0-1_amd64.deb
+```
+
+### Fedora/RHEL
+```bash
+curl -LO https://github.com/pszymkowiak/rtk/releases/latest/download/rtk-0.2.0-1.x86_64.rpm
+sudo rpm -i rtk-0.2.0-1.x86_64.rpm
+```
+
 ### Manual Download
 Download binaries from [Releases](https://github.com/pszymkowiak/rtk/releases):
 - macOS: `rtk-x86_64-apple-darwin.tar.gz` / `rtk-aarch64-apple-darwin.tar.gz`
 - Linux: `rtk-x86_64-unknown-linux-gnu.tar.gz` / `rtk-aarch64-unknown-linux-gnu.tar.gz`
 - Windows: `rtk-x86_64-pc-windows-msvc.zip`
-- Debian/Ubuntu: `rtk_*.deb`
-- Fedora/RHEL: `rtk-*.rpm`
 
 ## Quick Start
 
