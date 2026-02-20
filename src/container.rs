@@ -692,6 +692,274 @@ pub fn run_compose_passthrough(args: &[OsString], verbose: u8) -> Result<()> {
     Ok(())
 }
 
+/// Dispatch `kubectl get <resource>` to specialized or generic filter
+pub fn kubectl_get(resource: &str, args: &[String], verbose: u8) -> Result<()> {
+    match resource {
+        "pods" | "pod" | "po" => kubectl_pods(args, verbose),
+        "services" | "service" | "svc" => kubectl_services(args, verbose),
+        _ => kubectl_get_generic(resource, args, verbose),
+    }
+}
+
+/// Generic `kubectl get <resource>` filter via JSON output
+fn kubectl_get_generic(resource: &str, args: &[String], verbose: u8) -> Result<()> {
+    // If user already specified -o/--output, fall back to passthrough
+    if args.iter().any(|a| a == "-o" || a.starts_with("--output")) {
+        let timer = tracking::TimedExecution::start();
+        let mut cmd = Command::new("kubectl");
+        cmd.arg("get").arg(resource);
+        for arg in args {
+            cmd.arg(arg);
+        }
+        let status = cmd.status().context("Failed to run kubectl")?;
+        let label = format!("kubectl get {} {}", resource, args.join(" "));
+        timer.track_passthrough(&label, &format!("rtk {} (passthrough)", label));
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
+        return Ok(());
+    }
+
+    let timer = tracking::TimedExecution::start();
+
+    let mut cmd = Command::new("kubectl");
+    cmd.args(["get", resource, "-o", "json"]);
+    for arg in args {
+        cmd.arg(arg);
+    }
+
+    if verbose > 0 {
+        eprintln!("kubectl get {} -o json {}", resource, args.join(" "));
+    }
+
+    let output = cmd
+        .output()
+        .context(format!("Failed to run kubectl get {}", resource))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprint!("{}", stderr);
+        let raw = format!("{}{}", String::from_utf8_lossy(&output.stdout), stderr);
+        timer.track(
+            &format!("kubectl get {}", resource),
+            &format!("rtk kubectl get {}", resource),
+            &raw,
+            &stderr,
+        );
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    let rtk = filter_kubectl_get_json(&raw, resource);
+
+    print!("{}", rtk);
+    timer.track(
+        &format!("kubectl get {}", resource),
+        &format!("rtk kubectl get {}", resource),
+        &raw,
+        &rtk,
+    );
+    Ok(())
+}
+
+/// Pure filter: parse kubectl JSON and produce compact output
+pub fn filter_kubectl_get_json(raw: &str, resource: &str) -> String {
+    let json: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return format!("☸️  Failed to parse {} JSON", resource),
+    };
+
+    // Single resource (no "items" key) — kubectl get <resource> <name> -o json
+    if json.get("items").is_none() {
+        let ns = json["metadata"]["namespace"].as_str().unwrap_or_default();
+        let name = json["metadata"]["name"].as_str().unwrap_or("-");
+        let status = extract_resource_status(&json, resource);
+        let label = if ns.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}/{}", ns, name)
+        };
+        return format!("☸️  {} {}: {}\n", resource, label, status);
+    }
+
+    let items = match json["items"].as_array() {
+        Some(arr) => arr,
+        None => return format!("☸️  No {} found\n", resource),
+    };
+
+    if items.is_empty() {
+        return format!("☸️  No {} found\n", resource);
+    }
+
+    let mut result = format!("☸️  {} {}:\n", items.len(), resource);
+
+    for item in items.iter().take(15) {
+        let ns = item["metadata"]["namespace"].as_str().unwrap_or_default();
+        let name = item["metadata"]["name"].as_str().unwrap_or("-");
+        let status = extract_resource_status(item, resource);
+        let label = if ns.is_empty() {
+            name.to_string()
+        } else {
+            format!("{}/{}", ns, name)
+        };
+        result.push_str(&format!("  {} {}\n", label, status));
+    }
+
+    if items.len() > 15 {
+        result.push_str(&format!("  +{} more\n", items.len() - 15));
+    }
+
+    result
+}
+
+/// Extract a compact status string per resource type
+fn extract_resource_status(item: &serde_json::Value, resource: &str) -> String {
+    match resource {
+        "nodes" | "node" | "no" => extract_node_status(item),
+        "deployments" | "deployment" | "deploy" => extract_deployment_status(item),
+        "events" | "event" | "ev" => extract_event_status(item),
+        "configmaps" | "configmap" | "cm" => extract_data_count(item, "configmap"),
+        "secrets" | "secret" => extract_data_count(item, "secret"),
+        "ingresses" | "ingress" | "ing" => extract_ingress_status(item),
+        "jobs" | "job" => extract_job_status(item),
+        "namespaces" | "namespace" | "ns" => extract_namespace_status(item),
+        "daemonsets" | "daemonset" | "ds" => extract_daemonset_status(item),
+        "statefulsets" | "statefulset" | "sts" => extract_statefulset_status(item),
+        _ => extract_generic_status(item),
+    }
+}
+
+fn extract_node_status(item: &serde_json::Value) -> String {
+    let mut ready = false;
+    if let Some(conditions) = item["status"]["conditions"].as_array() {
+        for c in conditions {
+            if c["type"].as_str() == Some("Ready") && c["status"].as_str() == Some("True") {
+                ready = true;
+            }
+        }
+    }
+    let version = item["status"]["nodeInfo"]["kubeletVersion"]
+        .as_str()
+        .unwrap_or("-");
+    let cpu = item["status"]["capacity"]["cpu"].as_str().unwrap_or("-");
+    let mem = item["status"]["capacity"]["memory"].as_str().unwrap_or("-");
+    let status = if ready { "Ready" } else { "NotReady" };
+    format!(
+        "{} {} cpu={} mem={}",
+        status,
+        version,
+        cpu,
+        compact_memory(mem)
+    )
+}
+
+fn extract_deployment_status(item: &serde_json::Value) -> String {
+    let replicas = item["status"]["replicas"].as_i64().unwrap_or(0);
+    let ready = item["status"]["readyReplicas"].as_i64().unwrap_or(0);
+    let available = item["status"]["availableReplicas"].as_i64().unwrap_or(0);
+    format!("{}/{} ready, {} available", ready, replicas, available)
+}
+
+fn extract_event_status(item: &serde_json::Value) -> String {
+    let reason = item["reason"].as_str().unwrap_or("-");
+    let msg = item["message"].as_str().unwrap_or("");
+    let truncated = if msg.len() > 80 { &msg[..80] } else { msg };
+    let count = item["count"].as_i64().unwrap_or(1);
+    if count > 1 {
+        format!("{} (x{}) {}", reason, count, truncated)
+    } else {
+        format!("{} {}", reason, truncated)
+    }
+}
+
+fn extract_data_count(item: &serde_json::Value, kind: &str) -> String {
+    let count = item["data"].as_object().map(|o| o.len()).unwrap_or(0);
+    format!("{} keys ({})", count, kind)
+}
+
+fn extract_ingress_status(item: &serde_json::Value) -> String {
+    let rules: Vec<String> = item["spec"]["rules"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|r| r["host"].as_str().map(|h| h.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    if rules.is_empty() {
+        "no rules".to_string()
+    } else {
+        rules.join(", ")
+    }
+}
+
+fn extract_job_status(item: &serde_json::Value) -> String {
+    let succeeded = item["status"]["succeeded"].as_i64().unwrap_or(0);
+    let failed = item["status"]["failed"].as_i64().unwrap_or(0);
+    let active = item["status"]["active"].as_i64().unwrap_or(0);
+    if active > 0 {
+        format!(
+            "active={} succeeded={} failed={}",
+            active, succeeded, failed
+        )
+    } else if failed > 0 {
+        format!("Failed (succeeded={} failed={})", succeeded, failed)
+    } else {
+        format!("Complete ({})", succeeded)
+    }
+}
+
+fn extract_namespace_status(item: &serde_json::Value) -> String {
+    item["status"]["phase"].as_str().unwrap_or("-").to_string()
+}
+
+fn extract_daemonset_status(item: &serde_json::Value) -> String {
+    let desired = item["status"]["desiredNumberScheduled"]
+        .as_i64()
+        .unwrap_or(0);
+    let ready = item["status"]["numberReady"].as_i64().unwrap_or(0);
+    format!("{}/{} ready", ready, desired)
+}
+
+fn extract_statefulset_status(item: &serde_json::Value) -> String {
+    let replicas = item["status"]["replicas"].as_i64().unwrap_or(0);
+    let ready = item["status"]["readyReplicas"].as_i64().unwrap_or(0);
+    format!("{}/{} ready", ready, replicas)
+}
+
+fn extract_generic_status(item: &serde_json::Value) -> String {
+    // Try common status paths
+    if let Some(phase) = item["status"]["phase"].as_str() {
+        return phase.to_string();
+    }
+    if let Some(conditions) = item["status"]["conditions"].as_array() {
+        if let Some(last) = conditions.last() {
+            let ctype = last["type"].as_str().unwrap_or("-");
+            let status = last["status"].as_str().unwrap_or("-");
+            return format!("{}={}", ctype, status);
+        }
+    }
+    if let Some(ts) = item["metadata"]["creationTimestamp"].as_str() {
+        return format!("created {}", ts);
+    }
+    "-".to_string()
+}
+
+/// Convert memory like "32901712Ki" to "31Gi"
+fn compact_memory(mem: &str) -> String {
+    if let Some(ki) = mem.strip_suffix("Ki") {
+        if let Ok(n) = ki.parse::<u64>() {
+            let gi = n / (1024 * 1024);
+            if gi > 0 {
+                return format!("{}Gi", gi);
+            }
+            let mi = n / 1024;
+            return format!("{}Mi", mi);
+        }
+    }
+    mem.to_string()
+}
+
 /// Runs an unsupported kubectl subcommand by passing it through directly
 pub fn run_kubectl_passthrough(args: &[OsString], verbose: u8) -> Result<()> {
     let timer = tracking::TimedExecution::start();
@@ -851,5 +1119,365 @@ api-1  | Connected to database";
     fn test_compact_ports_many() {
         let result = compact_ports("0.0.0.0:80->80/tcp, 0.0.0.0:443->443/tcp, 0.0.0.0:8080->8080/tcp, 0.0.0.0:9090->9090/tcp");
         assert!(result.contains("..."), "should truncate for >3 ports");
+    }
+
+    // ── filter_kubectl_get_json ──────────────────────────────
+
+    #[test]
+    fn test_kubectl_get_json_empty_items() {
+        let json = r#"{"apiVersion":"v1","kind":"List","items":[]}"#;
+        let out = filter_kubectl_get_json(json, "configmaps");
+        assert!(out.contains("No configmaps found"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_invalid_json() {
+        let out = filter_kubectl_get_json("not json at all", "pods");
+        assert!(out.contains("Failed to parse"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_single_resource() {
+        let json = r#"{
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": "my-config", "namespace": "default"},
+            "data": {"key1": "val1", "key2": "val2"}
+        }"#;
+        let out = filter_kubectl_get_json(json, "configmaps");
+        assert!(out.contains("default/my-config"));
+        assert!(out.contains("2 keys"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_deployments() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "web", "namespace": "prod"},
+            "status": {"replicas": 3, "readyReplicas": 3, "availableReplicas": 3}
+        }, {
+            "metadata": {"name": "api", "namespace": "prod"},
+            "status": {"replicas": 2, "readyReplicas": 1, "availableReplicas": 1}
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "deployments");
+        assert!(out.contains("2 deployments"));
+        assert!(out.contains("prod/web"));
+        assert!(out.contains("3/3 ready"));
+        assert!(out.contains("1/2 ready"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_nodes() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "node-1"},
+            "status": {
+                "conditions": [{"type": "Ready", "status": "True"}],
+                "nodeInfo": {"kubeletVersion": "v1.28.3"},
+                "capacity": {"cpu": "8", "memory": "32901712Ki"}
+            }
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "nodes");
+        assert!(out.contains("1 nodes"));
+        assert!(out.contains("Ready"));
+        assert!(out.contains("v1.28.3"));
+        assert!(out.contains("cpu=8"));
+        assert!(out.contains("31Gi"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_events() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "ev1", "namespace": "default"},
+            "reason": "Pulled",
+            "message": "Successfully pulled image nginx:latest",
+            "count": 5
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "events");
+        assert!(out.contains("Pulled"));
+        assert!(out.contains("x5"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_truncation() {
+        let mut items = String::from(r#"{"items": ["#);
+        for i in 0..20 {
+            if i > 0 {
+                items.push(',');
+            }
+            items.push_str(&format!(
+                r#"{{"metadata":{{"name":"cm-{}","namespace":"ns"}},"data":{{"k":"v"}}}}"#,
+                i
+            ));
+        }
+        items.push_str("]}");
+        let out = filter_kubectl_get_json(&items, "configmaps");
+        assert!(out.contains("20 configmaps"));
+        assert!(out.contains("+5 more"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_unknown_resource() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "my-crd", "namespace": "default"},
+            "status": {"phase": "Active"}
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "mycustomresources");
+        assert!(out.contains("1 mycustomresources"));
+        assert!(out.contains("Active"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_generic_conditions_fallback() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "x", "namespace": "default"},
+            "status": {"conditions": [{"type": "Available", "status": "True"}]}
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "unknowns");
+        assert!(out.contains("Available=True"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_secrets() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "db-creds", "namespace": "prod"},
+            "data": {"username": "dXNlcg==", "password": "cGFzcw==", "host": "aG9zdA=="}
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "secrets");
+        assert!(out.contains("3 keys"));
+        assert!(!out.contains("dXNlcg=="), "should not leak secret values");
+    }
+
+    #[test]
+    fn test_kubectl_get_json_namespaces() {
+        let json = r#"{"items": [
+            {"metadata": {"name": "default"}, "status": {"phase": "Active"}},
+            {"metadata": {"name": "kube-system"}, "status": {"phase": "Active"}}
+        ]}"#;
+        let out = filter_kubectl_get_json(json, "namespaces");
+        assert!(out.contains("2 namespaces"));
+        assert!(out.contains("Active"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_jobs() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "backup", "namespace": "default"},
+            "status": {"succeeded": 1, "failed": 0, "active": 0}
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "jobs");
+        assert!(out.contains("Complete"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_ingresses() {
+        let json = r#"{"items": [{
+            "metadata": {"name": "web-ing", "namespace": "default"},
+            "spec": {"rules": [{"host": "app.example.com"}, {"host": "api.example.com"}]}
+        }]}"#;
+        let out = filter_kubectl_get_json(json, "ingresses");
+        assert!(out.contains("app.example.com"));
+        assert!(out.contains("api.example.com"));
+    }
+
+    #[test]
+    fn test_kubectl_get_json_token_savings() {
+        fn count_tokens(text: &str) -> usize {
+            text.split_whitespace().count()
+        }
+
+        // Real kubectl output is pretty-printed JSON with lots of whitespace tokens
+        let json = r#"{
+    "apiVersion": "v1",
+    "kind": "DeploymentList",
+    "metadata": {
+        "resourceVersion": "12345"
+    },
+    "items": [
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "web",
+                "namespace": "prod",
+                "uid": "abc-123",
+                "resourceVersion": "111",
+                "generation": 5,
+                "creationTimestamp": "2024-01-01T00:00:00Z",
+                "labels": {
+                    "app": "web",
+                    "tier": "frontend"
+                },
+                "annotations": {
+                    "deployment.kubernetes.io/revision": "3"
+                }
+            },
+            "spec": {
+                "replicas": 3,
+                "selector": {
+                    "matchLabels": {
+                        "app": "web"
+                    }
+                },
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app": "web"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "web",
+                                "image": "nginx:1.25",
+                                "ports": [
+                                    {
+                                        "containerPort": 80
+                                    }
+                                ],
+                                "resources": {
+                                    "requests": {
+                                        "cpu": "100m",
+                                        "memory": "128Mi"
+                                    },
+                                    "limits": {
+                                        "cpu": "500m",
+                                        "memory": "256Mi"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "status": {
+                "observedGeneration": 5,
+                "replicas": 3,
+                "updatedReplicas": 3,
+                "readyReplicas": 3,
+                "availableReplicas": 3,
+                "conditions": [
+                    {
+                        "type": "Available",
+                        "status": "True",
+                        "lastUpdateTime": "2024-01-01T00:00:00Z",
+                        "lastTransitionTime": "2024-01-01T00:00:00Z",
+                        "reason": "MinimumReplicasAvailable",
+                        "message": "Deployment has minimum availability."
+                    },
+                    {
+                        "type": "Progressing",
+                        "status": "True",
+                        "lastUpdateTime": "2024-01-01T00:00:00Z",
+                        "lastTransitionTime": "2024-01-01T00:00:00Z",
+                        "reason": "NewReplicaSetAvailable",
+                        "message": "ReplicaSet has successfully progressed."
+                    }
+                ]
+            }
+        },
+        {
+            "apiVersion": "apps/v1",
+            "kind": "Deployment",
+            "metadata": {
+                "name": "api",
+                "namespace": "prod",
+                "uid": "def-456",
+                "resourceVersion": "222",
+                "generation": 8,
+                "creationTimestamp": "2024-01-02T00:00:00Z",
+                "labels": {
+                    "app": "api",
+                    "tier": "backend"
+                },
+                "annotations": {
+                    "deployment.kubernetes.io/revision": "8"
+                }
+            },
+            "spec": {
+                "replicas": 2,
+                "selector": {
+                    "matchLabels": {
+                        "app": "api"
+                    }
+                },
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app": "api"
+                        }
+                    },
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "api",
+                                "image": "node:20",
+                                "ports": [
+                                    {
+                                        "containerPort": 3000
+                                    }
+                                ],
+                                "resources": {
+                                    "requests": {
+                                        "cpu": "200m",
+                                        "memory": "256Mi"
+                                    },
+                                    "limits": {
+                                        "cpu": "1",
+                                        "memory": "512Mi"
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            },
+            "status": {
+                "observedGeneration": 8,
+                "replicas": 2,
+                "updatedReplicas": 2,
+                "readyReplicas": 2,
+                "availableReplicas": 2,
+                "conditions": [
+                    {
+                        "type": "Available",
+                        "status": "True"
+                    },
+                    {
+                        "type": "Progressing",
+                        "status": "True"
+                    }
+                ]
+            }
+        }
+    ]
+}"#;
+        let out = filter_kubectl_get_json(json, "deployments");
+
+        let input_tokens = count_tokens(json);
+        let output_tokens = count_tokens(&out);
+        let savings = 100.0 - (output_tokens as f64 / input_tokens as f64 * 100.0);
+        assert!(
+            savings >= 70.0,
+            "Expected ≥70% savings, got {:.1}% (in={}, out={})",
+            savings,
+            input_tokens,
+            output_tokens
+        );
+    }
+
+    // ── compact_memory ───────────────────────────────────────
+
+    #[test]
+    fn test_compact_memory_gi() {
+        assert_eq!(compact_memory("32901712Ki"), "31Gi");
+    }
+
+    #[test]
+    fn test_compact_memory_mi() {
+        assert_eq!(compact_memory("524288Ki"), "512Mi");
+    }
+
+    #[test]
+    fn test_compact_memory_passthrough() {
+        assert_eq!(compact_memory("4Gi"), "4Gi");
     }
 }

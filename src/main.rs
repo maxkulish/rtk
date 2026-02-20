@@ -720,6 +720,14 @@ enum KubectlCommands {
         #[arg(short, long)]
         container: Option<String>,
     },
+    /// Get any resource (routes known types to specialized filters)
+    Get {
+        /// Resource type (pods, services, deployments, nodes, etc.)
+        resource: String,
+        /// Additional kubectl arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Passthrough: runs any unsupported kubectl subcommand directly
     #[command(external_subcommand)]
     Other(Vec<OsString>),
@@ -1071,6 +1079,9 @@ fn main() -> Result<()> {
                     args.push(cont);
                 }
                 container::run(container::ContainerCmd::KubectlLogs, &args, cli.verbose)?;
+            }
+            KubectlCommands::Get { resource, args } => {
+                container::kubectl_get(&resource, &args, cli.verbose)?;
             }
             KubectlCommands::Other(args) => {
                 container::run_kubectl_passthrough(&args, cli.verbose)?;
@@ -1540,6 +1551,48 @@ mod tests {
                 assert_eq!(message, vec!["title", "body", "footer"]);
             }
             _ => panic!("Expected Git Commit command"),
+        }
+    }
+
+    #[test]
+    fn test_kubectl_get_pods() {
+        let cli =
+            Cli::try_parse_from(["rtk", "kubectl", "get", "pods", "-n", "kube-system"]).unwrap();
+        match cli.command {
+            Commands::Kubectl {
+                command: KubectlCommands::Get { resource, args },
+            } => {
+                assert_eq!(resource, "pods");
+                assert_eq!(args, vec!["-n", "kube-system"]);
+            }
+            _ => panic!("Expected Kubectl Get command"),
+        }
+    }
+
+    #[test]
+    fn test_kubectl_get_deployments() {
+        let cli = Cli::try_parse_from(["rtk", "kubectl", "get", "deployments", "-A"]).unwrap();
+        match cli.command {
+            Commands::Kubectl {
+                command: KubectlCommands::Get { resource, args },
+            } => {
+                assert_eq!(resource, "deployments");
+                assert_eq!(args, vec!["-A"]);
+            }
+            _ => panic!("Expected Kubectl Get command"),
+        }
+    }
+
+    #[test]
+    fn test_kubectl_pods_backward_compat() {
+        let cli = Cli::try_parse_from(["rtk", "kubectl", "pods", "-A"]).unwrap();
+        match cli.command {
+            Commands::Kubectl {
+                command: KubectlCommands::Pods { all, .. },
+            } => {
+                assert!(all);
+            }
+            _ => panic!("Expected Kubectl Pods command (backward compat)"),
         }
     }
 }
