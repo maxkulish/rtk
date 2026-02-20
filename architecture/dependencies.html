@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTK Dependency Analysis</title>
+<style>
+  :root { --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#bc8cff; }
+  * { margin:0;padding:0;box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6; }
+  .container { max-width:1100px;margin:0 auto;padding:2rem; }
+  h1 { font-size:1.8rem;margin-bottom:0.5rem; }
+  h2 { font-size:1.4rem;margin:2rem 0 1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem; }
+  a { color:var(--accent);text-decoration:none; }
+  .back { margin-bottom:1.5rem;display:inline-block; }
+  .subtitle { color:var(--text-muted);margin-bottom:2rem; }
+  table { width:100%;border-collapse:collapse;margin:1rem 0; }
+  th,td { padding:0.6rem 0.8rem;text-align:left;border-bottom:1px solid var(--border);font-size:0.9rem; }
+  th { color:var(--text-muted);font-size:0.8rem;text-transform:uppercase; }
+  code { background:rgba(110,118,129,0.15);padding:2px 6px;border-radius:4px;font-size:0.9em; }
+  .badge { display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:600; }
+  .badge-safe { background:rgba(63,185,80,0.15);color:var(--green);border:1px solid rgba(63,185,80,0.3); }
+  .badge-warn { background:rgba(210,153,34,0.15);color:var(--orange);border:1px solid rgba(210,153,34,0.3); }
+  .dep-card { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1rem 1.2rem;margin:0.5rem 0; }
+  .dep-card .header { display:flex;justify-content:space-between;align-items:center; }
+  .dep-card .name { font-weight:600;color:var(--accent); }
+  .dep-card .detail { color:var(--text-muted);font-size:0.9rem;margin-top:0.4rem; }
+  .summary-box { background:var(--surface);border:2px solid var(--green);border-radius:8px;padding:1.5rem;margin:1rem 0; }
+  .footer { margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="index.html" class="back">&larr; Back to Overview</a>
+  <h1>Dependency Analysis</h1>
+  <p class="subtitle">15 direct dependencies, ~60 transitive &mdash; all trusted, no network crates</p>
+
+  <div class="summary-box">
+    <h3 style="color:var(--green);margin-bottom:0.5rem">Dependency Verdict: CLEAN</h3>
+    <ul style="padding-left:1.5rem">
+      <li><strong>Zero network crates</strong> &mdash; No reqwest, hyper, curl, http, tls, openssl, rustls</li>
+      <li><strong>Zero crypto crates</strong> &mdash; No encryption, hashing, or signing libraries</li>
+      <li><strong>Zero telemetry crates</strong> &mdash; No analytics, tracking, or metrics libraries</li>
+      <li><strong>All crates are well-known</strong> &mdash; From established Rust ecosystem authors</li>
+      <li><strong>No dev-dependencies</strong> &mdash; Clean production profile with no test-only risks</li>
+    </ul>
+  </div>
+
+  <h2>Direct Dependencies (from Cargo.toml)</h2>
+  <table>
+    <tr><th>Crate</th><th>Version</th><th>Purpose</th><th>Downloads</th><th>Risk</th></tr>
+    <tr><td><code>clap</code></td><td>4</td><td>CLI argument parsing (derive macros)</td><td>100M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>anyhow</code></td><td>1.0</td><td>Error handling with context</td><td>100M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>regex</code></td><td>1</td><td>Pattern matching for output filtering</td><td>100M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>serde</code></td><td>1</td><td>Serialization framework</td><td>100M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>serde_json</code></td><td>1</td><td>JSON parsing (config, command output)</td><td>100M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>rusqlite</code></td><td>0.31</td><td>SQLite bindings (bundled SQLite)</td><td>10M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>lazy_static</code></td><td>1.4</td><td>Static initialization for compiled regex</td><td>100M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>colored</code></td><td>2</td><td>Terminal color output</td><td>10M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>walkdir</code></td><td>2</td><td>Directory traversal</td><td>50M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>ignore</code></td><td>0.4</td><td>Gitignore-aware file filtering</td><td>10M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>dirs</code></td><td>5</td><td>Platform-specific directory paths</td><td>10M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>toml</code></td><td>0.8</td><td>TOML config file parsing</td><td>50M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>chrono</code></td><td>0.4</td><td>Date/time handling</td><td>50M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>thiserror</code></td><td>1.0</td><td>Error type derivation</td><td>50M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+    <tr><td><code>tempfile</code></td><td>3</td><td>Temporary file creation</td><td>50M+</td><td><span class="badge badge-safe">SAFE</span></td></tr>
+  </table>
+
+  <h2>What's NOT in the Dependencies</h2>
+  <p style="margin-bottom:1rem">These categories of crates are <strong>completely absent</strong>, confirming RTK has no hidden capabilities:</p>
+  <table>
+    <tr><th>Category</th><th>Example Crates</th><th>Present?</th></tr>
+    <tr><td>HTTP clients</td><td>reqwest, hyper, ureq, attohttpc, surf</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>TLS/SSL</td><td>rustls, native-tls, openssl</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Async runtimes</td><td>tokio, async-std, smol</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Networking</td><td>socket2, mio, quinn</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Cryptography</td><td>ring, sha2, aes, bcrypt</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Keyring/Secrets</td><td>keyring, secret-service</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Clipboard</td><td>clipboard, arboard, copypasta</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Analytics/Telemetry</td><td>sentry, datadog, opentelemetry</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>Process injection</td><td>dll-syringe, frida</td><td style="color:var(--green)">NO</td></tr>
+    <tr><td>System hooks</td><td>detour, iced-x86</td><td style="color:var(--green)">NO</td></tr>
+  </table>
+
+  <h2>Transitive Dependency Highlights</h2>
+  <p style="margin-bottom:0.5rem">Notable transitive dependencies brought in by direct deps:</p>
+  <div class="dep-card">
+    <div class="header">
+      <span class="name">libsqlite3-sys (via rusqlite)</span>
+      <span class="badge badge-warn">BUILD DEP</span>
+    </div>
+    <div class="detail">
+      Compiles SQLite from C source at build time. Uses <code>cc</code> crate for compilation. This is the standard way to bundle SQLite in Rust. The SQLite source is vendored and well-audited. Build-time only dependency &mdash; no runtime network activity.
+    </div>
+  </div>
+  <div class="dep-card">
+    <div class="header">
+      <span class="name">proc-macro2, syn, quote (via clap, serde)</span>
+      <span class="badge badge-safe">COMPILE ONLY</span>
+    </div>
+    <div class="detail">
+      Standard Rust procedural macro infrastructure. Used by <code>#[derive(...)]</code> macros for Clap (CLI parsing) and Serde (serialization). These only run at compile time and produce no runtime code beyond the derived implementations.
+    </div>
+  </div>
+  <div class="dep-card">
+    <div class="header">
+      <span class="name">aho-corasick, memchr (via regex)</span>
+      <span class="badge badge-safe">SAFE</span>
+    </div>
+    <div class="detail">
+      Fast string searching algorithms used by the regex engine. Pure computational libraries with no I/O, no system calls, no side effects. Written by the same author (Andrew Gallant / BurntSushi).
+    </div>
+  </div>
+
+  <h2>Build Profile</h2>
+  <div class="dep-card">
+    <div class="header">
+      <span class="name">Release Profile (Cargo.toml)</span>
+      <span class="badge badge-safe">STANDARD</span>
+    </div>
+    <div class="detail">
+      <code>opt-level = 3</code> (max optimization), <code>lto = true</code> (link-time optimization), <code>codegen-units = 1</code> (single codegen), <code>strip = true</code> (remove debug symbols), <code>panic = "abort"</code> (smaller binary). This is a standard aggressive optimization profile &mdash; nothing suspicious.
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="index.html">&larr; Back to Overview</a>
+  </div>
+</div>
+</body>
+</html>

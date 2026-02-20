@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTK Architecture &amp; Data Flow</title>
+<style>
+  :root { --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#bc8cff; }
+  * { margin:0;padding:0;box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6; }
+  .container { max-width:1100px;margin:0 auto;padding:2rem; }
+  h1 { font-size:1.8rem;margin-bottom:0.5rem; }
+  h2 { font-size:1.4rem;margin:2rem 0 1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem; }
+  h3 { font-size:1.05rem;margin:1.2rem 0 0.5rem;color:var(--accent); }
+  a { color:var(--accent);text-decoration:none; }
+  .back { margin-bottom:1.5rem;display:inline-block; }
+  .subtitle { color:var(--text-muted);margin-bottom:2rem; }
+  pre { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85rem;margin:0.5rem 0;line-height:1.5; }
+  code { background:rgba(110,118,129,0.15);padding:2px 6px;border-radius:4px;font-size:0.9em; }
+  table { width:100%;border-collapse:collapse;margin:1rem 0; }
+  th,td { padding:0.5rem 0.8rem;text-align:left;border-bottom:1px solid var(--border);font-size:0.9rem; }
+  th { color:var(--text-muted);font-size:0.8rem;text-transform:uppercase; }
+  .module-grid { display:grid;grid-template-columns:repeat(auto-fit, minmax(300px, 1fr));gap:1rem;margin:1rem 0; }
+  .module-card { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1rem; }
+  .module-card .name { font-weight:600;color:var(--accent);font-size:0.95rem; }
+  .module-card .lines { color:var(--text-muted);font-size:0.8rem; }
+  .module-card .desc { font-size:0.9rem;margin-top:0.4rem; }
+  .flow-box { background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin:1rem 0; }
+  .badge { display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:600; }
+  .badge-core { background:rgba(88,166,255,0.15);color:var(--accent);border:1px solid rgba(88,166,255,0.3); }
+  .badge-filter { background:rgba(188,140,255,0.15);color:var(--purple);border:1px solid rgba(188,140,255,0.3); }
+  .badge-util { background:rgba(63,185,80,0.15);color:var(--green);border:1px solid rgba(63,185,80,0.3); }
+  .footer { margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="index.html" class="back">&larr; Back to Overview</a>
+  <h1>Architecture &amp; Data Flow</h1>
+  <p class="subtitle">How RTK works internally &mdash; 57 source files, ~50,249 lines of Rust</p>
+
+  <h2>High-Level Data Flow</h2>
+  <div class="flow-box">
+<pre style="background:transparent;border:none;padding:0;color:var(--text)">
+User types: rtk git log -10
+        |
+        v
+  +-----------+     Clap parses CLI args
+  | main.rs   |-----------------------------+
+  +-----------+                              |
+        |                                    |
+        v                                    v
+  +------------+                    +------------------+
+  | git.rs     |  matched command   | runner.rs        |
+  | (filter    |------ runs ------->| executes:        |
+  |  module)   |                    | sh -c "git log"  |
+  +------------+                    +------------------+
+        |                                    |
+        | captures stdout + stderr           |
+        v                                    |
+  +------------------+                       |
+  | Filter Logic     | &lt;--------------------+
+  | - Regex parsing  |
+  | - Summarize      |
+  | - Strip noise    |
+  +------------------+
+        |
+        +------> stdout (filtered output to LLM)
+        |
+        +------> tracking.rs (save token stats to SQLite)
+        |
+        +------> tee.rs (optionally save raw output on failure)
+</pre>
+  </div>
+
+  <h2>Core Modules</h2>
+  <div class="module-grid">
+    <div class="module-card">
+      <div class="name">main.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">1,545 lines</div>
+      <div class="desc">CLI entry point. Defines all 50+ commands via Clap derive macros. Routes each command to its specialized filter module.</div>
+    </div>
+    <div class="module-card">
+      <div class="name">runner.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">~150 lines</div>
+      <div class="desc">Command execution engine. Spawns child processes via <code>sh -c</code> (Unix) or <code>cmd /C</code> (Windows). Captures stdout/stderr.</div>
+    </div>
+    <div class="module-card">
+      <div class="name">tracking.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">1,040 lines</div>
+      <div class="desc">SQLite-based token savings tracker. Stores command metrics locally. Powers <code>rtk gain</code> analytics. 90-day auto-cleanup.</div>
+    </div>
+    <div class="module-card">
+      <div class="name">config.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">~200 lines</div>
+      <div class="desc">Configuration management. Reads <code>~/.config/rtk/config.toml</code>. Controls tracking, display, filter, and tee settings.</div>
+    </div>
+    <div class="module-card">
+      <div class="name">tee.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">405 lines</div>
+      <div class="desc">Output recovery system. Saves raw unfiltered output to disk on command failure. Max 20 files, 1MB each, auto-rotated.</div>
+    </div>
+    <div class="module-card">
+      <div class="name">utils.rs <span class="badge badge-util">UTIL</span></div>
+      <div class="lines">398 lines</div>
+      <div class="desc">Shared helpers: ANSI stripping, text truncation, token formatting, package manager detection (pnpm/yarn/npm).</div>
+    </div>
+    <div class="module-card">
+      <div class="name">filter.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">405 lines</div>
+      <div class="desc">Language-aware code filtering for <code>rtk read</code>. Three levels: none, minimal (strip comments), aggressive (signatures only).</div>
+    </div>
+    <div class="module-card">
+      <div class="name">init.rs <span class="badge badge-core">CORE</span></div>
+      <div class="lines">1,514 lines</div>
+      <div class="desc">Installation/setup for Claude Code integration. Installs hook script, patches settings.json. Only runs on <code>rtk init</code>.</div>
+    </div>
+  </div>
+
+  <h2>Filter Modules (Command-Specific)</h2>
+  <table>
+    <tr><th>Module</th><th>Lines</th><th>Commands</th><th>Strategy</th><th>Token Savings</th></tr>
+    <tr><td><code>git.rs</code></td><td>1,660</td><td>git log/status/diff/commit/branch/stash</td><td>Stat summaries, compact diffs</td><td>70-90%</td></tr>
+    <tr><td><code>cargo_cmd.rs</code></td><td>1,622</td><td>cargo build/test/clippy/check</td><td>Failures only, strip verbose output</td><td>80-95%</td></tr>
+    <tr><td><code>gh_cmd.rs</code></td><td>1,458</td><td>gh pr/issue/run view/list</td><td>Strip ASCII art, compact metadata</td><td>26-87%</td></tr>
+    <tr><td><code>container.rs</code></td><td>855</td><td>docker/kubectl ps/logs/images</td><td>Essential fields only</td><td>60-80%</td></tr>
+    <tr><td><code>lint_cmd.rs</code></td><td>737</td><td>eslint/biome</td><td>Group by rule, file summary</td><td>84%</td></tr>
+    <tr><td><code>pnpm_cmd.rs</code></td><td>573</td><td>pnpm list/outdated/install</td><td>Compact dependency trees</td><td>70-90%</td></tr>
+    <tr><td><code>go_cmd.rs</code></td><td>529</td><td>go test/build/vet</td><td>NDJSON parsing, errors only</td><td>80-90%</td></tr>
+    <tr><td><code>prisma_cmd.rs</code></td><td>482</td><td>prisma migrate/generate/push</td><td>Strip ASCII art</td><td>88%</td></tr>
+    <tr><td><code>vitest_cmd.rs</code></td><td>385</td><td>vitest run</td><td>Failures only, ANSI stripping</td><td>99.5%</td></tr>
+    <tr><td><code>ruff_cmd.rs</code></td><td>402</td><td>ruff check/format</td><td>JSON for check, text for format</td><td>80%+</td></tr>
+    <tr><td><code>pytest_cmd.rs</code></td><td>384</td><td>pytest</td><td>State machine text parser</td><td>90%+</td></tr>
+    <tr><td><code>playwright_cmd.rs</code></td><td>340</td><td>playwright test</td><td>Failures only, grouped by suite</td><td>94%</td></tr>
+    <tr><td><code>tsc_cmd.rs</code></td><td>~300</td><td>tsc --noEmit</td><td>Group by file/error code</td><td>83%</td></tr>
+    <tr><td><code>next_cmd.rs</code></td><td>~300</td><td>next build/dev</td><td>Route metrics, bundle stats</td><td>87%</td></tr>
+    <tr><td><code>prettier_cmd.rs</code></td><td>~250</td><td>prettier --check</td><td>Files needing changes only</td><td>70%</td></tr>
+    <tr><td><code>pip_cmd.rs</code></td><td>~300</td><td>pip list/outdated/install</td><td>JSON parsing, auto-detect uv</td><td>70-85%</td></tr>
+    <tr><td><code>grep_cmd.rs</code></td><td>~400</td><td>grep/rg</td><td>Group by file, truncate</td><td>60%+</td></tr>
+    <tr><td><code>wc_cmd.rs</code></td><td>401</td><td>wc</td><td>Compact counts</td><td>60%+</td></tr>
+  </table>
+
+  <h2>Local Data Storage Map</h2>
+  <div class="flow-box">
+<pre style="background:transparent;border:none;padding:0;color:var(--text)">
+~/.local/share/rtk/
+  ├── tracking.db           # SQLite: command metrics (auto-cleanup 90 days)
+  ├── tee/                  # Raw output recovery (max 20 files, 1MB each)
+  │   ├── 1708392450_cargo_test.log
+  │   └── ...
+  └── hook-audit.log        # Hook rewrite audit trail (optional)
+
+~/.config/rtk/
+  └── config.toml           # User preferences (created on demand)
+
+~/.claude/                  # Only written by "rtk init"
+  ├── hooks/
+  │   └── rtk-rewrite.sh    # Claude Code hook script
+  ├── RTK.md                # RTK awareness file
+  └── settings.json         # Patched with hook entry
+</pre>
+  </div>
+
+  <h2>What RTK Does NOT Do</h2>
+  <ul style="padding-left:1.5rem;margin-top:0.5rem">
+    <li>Does NOT modify your source code or project files</li>
+    <li>Does NOT change the behavior of the underlying command</li>
+    <li>Does NOT intercept or modify stdin (only transforms stdout/stderr)</li>
+    <li>Does NOT require root/sudo privileges</li>
+    <li>Does NOT run background processes or daemons</li>
+    <li>Does NOT install system-wide services</li>
+    <li>Does NOT access the internet</li>
+    <li>Does NOT store passwords, API keys, or credentials</li>
+  </ul>
+
+  <div class="footer">
+    <a href="index.html">&larr; Back to Overview</a>
+  </div>
+</div>
+</body>
+</html>

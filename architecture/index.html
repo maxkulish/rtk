@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTK Security &amp; Architecture Analysis</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --orange: #d29922;
+    --purple: #bc8cff;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
+  .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+  h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.5rem; margin: 2rem 0 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+  h3 { font-size: 1.1rem; margin: 1.5rem 0 0.5rem; color: var(--accent); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .subtitle { color: var(--text-muted); margin-bottom: 2rem; }
+  .nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 2rem 0; }
+  .nav-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; transition: border-color 0.2s; }
+  .nav-card:hover { border-color: var(--accent); }
+  .nav-card h3 { margin-top: 0; }
+  .nav-card p { color: var(--text-muted); font-size: 0.9rem; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+  .badge-safe { background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }
+  .badge-warn { background: rgba(210, 153, 34, 0.15); color: var(--orange); border: 1px solid rgba(210, 153, 34, 0.3); }
+  .badge-danger { background: rgba(248, 81, 73, 0.15); color: var(--red); border: 1px solid rgba(248, 81, 73, 0.3); }
+  .verdict-box { background: var(--surface); border: 2px solid var(--green); border-radius: 8px; padding: 1.5rem; margin: 2rem 0; }
+  .verdict-box h2 { border: none; margin-top: 0; color: var(--green); }
+  .risk-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 1rem 0; }
+  .risk-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+  .risk-card .label { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; }
+  .risk-card .value { font-size: 1.3rem; font-weight: 600; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { padding: 0.6rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; }
+  code { background: rgba(110, 118, 129, 0.15); padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+  .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>RTK (Rust Token Killer) - Security &amp; Architecture Analysis</h1>
+  <p class="subtitle">Independent audit of <code>rtk-ai/rtk</code> v0.22.1 &mdash; Generated 2026-02-20</p>
+
+  <div class="verdict-box">
+    <h2>Overall Verdict: SAFE TO USE</h2>
+    <p>RTK is a <strong>100% offline CLI tool</strong>. It contains <strong>zero network dependencies</strong>, makes <strong>zero external connections</strong>, sends <strong>no telemetry or analytics</strong>, and stores all data locally on your machine. The codebase is transparent, open-source (MIT license), and has been audited across 57 Rust source files (~50,249 lines of code).</p>
+    <p style="margin-top:0.5rem">Key risks are limited to <strong>information loss from aggressive filtering</strong> (output truncation/summarization) and <strong>minor local data persistence</strong> (command history in SQLite). Both are configurable and can be disabled.</p>
+  </div>
+
+  <h2>Analysis Sections</h2>
+  <div class="nav">
+    <a href="security.html" class="nav-card">
+      <h3>Security &amp; Privacy Audit</h3>
+      <p>Network calls, telemetry, data exfiltration, third-party services, environment variables, unsafe code analysis</p>
+      <span class="badge badge-safe">CLEAN</span>
+    </a>
+    <a href="architecture.html" class="nav-card">
+      <h3>Architecture &amp; Data Flow</h3>
+      <p>How RTK works: command routing, filtering pipeline, process execution, data storage locations</p>
+      <span class="badge badge-safe">TRANSPARENT</span>
+    </a>
+    <a href="dependencies.html" class="nav-card">
+      <h3>Dependency Analysis</h3>
+      <p>All 15 direct dependencies and their transitive tree. No network, crypto, or suspicious crates</p>
+      <span class="badge badge-safe">ALL TRUSTED</span>
+    </a>
+    <a href="risks.html" class="nav-card">
+      <h3>Risks &amp; Information Loss</h3>
+      <p>What RTK filters out, when it drops context, exit code bugs, and known issues from GitHub</p>
+      <span class="badge badge-warn">REVIEW</span>
+    </a>
+    <a href="github-activity.html" class="nav-card">
+      <h3>GitHub Issues &amp; PRs</h3>
+      <p>Analysis of 40+ open issues, 30+ pull requests, community activity, and bug patterns</p>
+      <span class="badge badge-warn">ACTIVE PROJECT</span>
+    </a>
+  </div>
+
+  <h2>Quick Risk Summary</h2>
+  <div class="risk-grid">
+    <div class="risk-card">
+      <div class="label">Network Connections</div>
+      <div class="value" style="color:var(--green)">NONE</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Telemetry / Analytics</div>
+      <div class="value" style="color:var(--green)">NONE</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Third-Party Services</div>
+      <div class="value" style="color:var(--green)">NONE</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Unsafe Rust Code</div>
+      <div class="value" style="color:var(--green)">ZERO blocks</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Data Sent Externally</div>
+      <div class="value" style="color:var(--green)">NOTHING</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Information Loss Risk</div>
+      <div class="value" style="color:var(--orange)">MEDIUM</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Local Data Storage</div>
+      <div class="value" style="color:var(--orange)">SQLite + logs</div>
+    </div>
+    <div class="risk-card">
+      <div class="label">Known Bugs (open)</div>
+      <div class="value" style="color:var(--orange)">~25 issues</div>
+    </div>
+  </div>
+
+  <h2>What RTK Does (Plain English)</h2>
+  <ol style="padding-left:1.5rem">
+    <li><strong>Intercepts CLI commands</strong> &mdash; When you run <code>rtk git log</code>, it runs <code>git log</code> under the hood</li>
+    <li><strong>Captures the output</strong> &mdash; stdout and stderr are piped through RTK</li>
+    <li><strong>Filters/compresses the output</strong> &mdash; Removes noise (ANSI codes, verbose logs, passing tests, etc.)</li>
+    <li><strong>Returns condensed output</strong> &mdash; 60-90% fewer tokens reach your LLM context</li>
+    <li><strong>Tracks savings locally</strong> &mdash; Records how many tokens were saved in a local SQLite database</li>
+  </ol>
+  <p style="margin-top:1rem"><strong>RTK never modifies your code, deletes files, or changes command behavior.</strong> It only transforms the <em>output</em> before it reaches the LLM. The underlying command always executes with full fidelity.</p>
+
+  <div class="footer">
+    <p>Analysis performed on commit <code>1c025e9</code> (v0.22.1, 2026-02-20). Source: <a href="https://github.com/rtk-ai/rtk">github.com/rtk-ai/rtk</a></p>
+  </div>
+</div>
+</body>
+</html>

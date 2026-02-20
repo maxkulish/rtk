@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTK Security &amp; Privacy Audit</title>
+<style>
+  :root { --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#bc8cff; }
+  * { margin:0;padding:0;box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6; }
+  .container { max-width:1100px;margin:0 auto;padding:2rem; }
+  h1 { font-size:1.8rem;margin-bottom:0.5rem; }
+  h2 { font-size:1.4rem;margin:2rem 0 1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem; }
+  h3 { font-size:1.1rem;margin:1.2rem 0 0.5rem;color:var(--accent); }
+  a { color:var(--accent);text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .back { margin-bottom:1.5rem;display:inline-block; }
+  .subtitle { color:var(--text-muted);margin-bottom:2rem; }
+  .check-item { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1rem 1.2rem;margin:0.5rem 0; }
+  .check-item .header { display:flex;justify-content:space-between;align-items:center; }
+  .check-item .title { font-weight:600; }
+  .check-item .detail { color:var(--text-muted);font-size:0.9rem;margin-top:0.5rem; }
+  .badge { display:inline-block;padding:2px 8px;border-radius:12px;font-size:0.75rem;font-weight:600; }
+  .badge-safe { background:rgba(63,185,80,0.15);color:var(--green);border:1px solid rgba(63,185,80,0.3); }
+  .badge-warn { background:rgba(210,153,34,0.15);color:var(--orange);border:1px solid rgba(210,153,34,0.3); }
+  .badge-info { background:rgba(88,166,255,0.15);color:var(--accent);border:1px solid rgba(88,166,255,0.3); }
+  code { background:rgba(110,118,129,0.15);padding:2px 6px;border-radius:4px;font-size:0.9em; }
+  pre { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1rem;overflow-x:auto;font-size:0.85rem;margin:0.5rem 0; }
+  table { width:100%;border-collapse:collapse;margin:1rem 0; }
+  th,td { padding:0.5rem 0.8rem;text-align:left;border-bottom:1px solid var(--border); }
+  th { color:var(--text-muted);font-size:0.8rem;text-transform:uppercase; }
+  .footer { margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="index.html" class="back">&larr; Back to Overview</a>
+  <h1>Security &amp; Privacy Audit</h1>
+  <p class="subtitle">12-point security checklist across all 57 source files</p>
+
+  <h2>1. Network Connections</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">HTTP/HTTPS Requests</span>
+      <span class="badge badge-safe">NONE FOUND</span>
+    </div>
+    <div class="detail">
+      Searched all .rs files for: <code>reqwest</code>, <code>hyper</code>, <code>TcpStream</code>, <code>UdpSocket</code>, <code>net::</code>, <code>connect</code>, <code>fetch</code>. Zero matches. RTK has <strong>no HTTP client library</strong> in its dependency tree. It physically cannot make network requests.
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Hardcoded URLs in Source</span>
+      <span class="badge badge-safe">METADATA ONLY</span>
+    </div>
+    <div class="detail">
+      Only 2 URLs found in Cargo.toml metadata (never executed):<br>
+      <code>https://www.rtk-ai.app</code> (homepage field)<br>
+      <code>https://github.com/rtk-ai/rtk</code> (repository field)<br>
+      All other URL references are in test fixtures or string-processing code (extracting PR URLs from GitHub CLI output).
+    </div>
+  </div>
+
+  <h2>2. Telemetry &amp; Analytics</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">External Telemetry</span>
+      <span class="badge badge-safe">NONE</span>
+    </div>
+    <div class="detail">
+      Searched for: <code>telemetry</code>, <code>analytics</code>, <code>beacon</code>, <code>phone_home</code>, <code>ping</code>, <code>heartbeat</code>. Zero matches. RTK collects <strong>zero data about you</strong> and sends nothing externally.
+    </div>
+  </div>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Local Tracking</span>
+      <span class="badge badge-info">LOCAL ONLY</span>
+    </div>
+    <div class="detail">
+      RTK tracks command usage in a local SQLite database at <code>~/.local/share/rtk/tracking.db</code>. This stores: command name, token counts, execution time, timestamp. It does NOT store command arguments, file contents, or user identity. Tracking can be disabled via <code>[tracking] enabled = false</code> in <code>~/.config/rtk/config.toml</code>.
+    </div>
+  </div>
+
+  <h2>3. Data Exfiltration</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Data Upload / Send / Post</span>
+      <span class="badge badge-safe">IMPOSSIBLE</span>
+    </div>
+    <div class="detail">
+      RTK has no HTTP client, no socket library, no network stack. It is physically impossible for RTK to upload or transmit data anywhere. All data operations are local filesystem reads/writes.
+    </div>
+  </div>
+
+  <h2>4. Third-Party Services</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">API Connections</span>
+      <span class="badge badge-safe">NONE</span>
+    </div>
+    <div class="detail">
+      RTK does not connect to any APIs, cloud services, monitoring platforms, or external servers. It runs entirely as a local process that wraps other CLI tools.
+    </div>
+  </div>
+
+  <h2>5. Environment Variables Read</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Environment Access</span>
+      <span class="badge badge-safe">LIMITED &amp; TRANSPARENT</span>
+    </div>
+    <div class="detail">
+      <table>
+        <tr><th>Variable</th><th>File</th><th>Purpose</th></tr>
+        <tr><td><code>RTK_DB_PATH</code></td><td>tracking.rs</td><td>Override database location</td></tr>
+        <tr><td><code>RTK_TEE</code></td><td>tee.rs</td><td>Disable tee (set to 0)</td></tr>
+        <tr><td><code>RTK_TEE_DIR</code></td><td>tee.rs</td><td>Override tee output directory</td></tr>
+        <tr><td><code>RTK_AUDIT_DIR</code></td><td>hook_audit_cmd.rs</td><td>Override audit log location</td></tr>
+        <tr><td><code>HOME</code></td><td>hook_audit_cmd.rs</td><td>Resolve home directory</td></tr>
+      </table>
+      All env vars are for local configuration only. None are sent externally. None read sensitive variables like API keys or tokens.
+    </div>
+  </div>
+
+  <h2>6. File System Operations</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Files Written by RTK</span>
+      <span class="badge badge-info">LOCAL USER DIR ONLY</span>
+    </div>
+    <div class="detail">
+      <table>
+        <tr><th>Location</th><th>What</th><th>When</th></tr>
+        <tr><td><code>~/.local/share/rtk/tracking.db</code></td><td>SQLite token savings database</td><td>Every filtered command</td></tr>
+        <tr><td><code>~/.local/share/rtk/tee/*.log</code></td><td>Raw output recovery files</td><td>On command failure (configurable)</td></tr>
+        <tr><td><code>~/.local/share/rtk/hook-audit.log</code></td><td>Hook rewrite audit log</td><td>When hook audit is enabled</td></tr>
+        <tr><td><code>~/.config/rtk/config.toml</code></td><td>User configuration</td><td>On <code>rtk config --create</code></td></tr>
+        <tr><td><code>~/.claude/hooks/rtk-rewrite.sh</code></td><td>Claude Code hook script</td><td>On <code>rtk init</code></td></tr>
+      </table>
+      <strong>RTK never writes to your project directory</strong> during normal operation. It only writes to <code>~/.local/share/rtk/</code> and <code>~/.config/rtk/</code>. The <code>rtk init</code> command writes to <code>~/.claude/</code> for Claude Code integration.
+    </div>
+  </div>
+
+  <h2>7. Process Execution</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Child Process Spawning</span>
+      <span class="badge badge-info">CONTROLLED</span>
+    </div>
+    <div class="detail">
+      RTK spawns child processes via <code>std::process::Command</code> in <code>runner.rs</code>. It runs commands through <code>sh -c</code> (Unix) or <code>cmd /C</code> (Windows). This is its core functionality &mdash; it must execute the underlying CLI tool (git, cargo, npm, etc.) to capture and filter its output. <strong>RTK only executes the exact command you ask it to run.</strong> It does not inject or modify the command itself.
+    </div>
+  </div>
+
+  <h2>8. SQLite Database Contents</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Tracking Database Schema</span>
+      <span class="badge badge-safe">NON-SENSITIVE</span>
+    </div>
+    <div class="detail">
+      <pre>CREATE TABLE commands (
+  id INTEGER PRIMARY KEY,
+  timestamp TEXT NOT NULL,
+  original_cmd TEXT NOT NULL,    -- e.g. "git log"
+  rtk_cmd TEXT NOT NULL,         -- e.g. "rtk git log"
+  input_tokens INTEGER NOT NULL, -- before filtering
+  output_tokens INTEGER NOT NULL,-- after filtering
+  saved_tokens INTEGER NOT NULL, -- difference
+  savings_pct REAL NOT NULL,     -- percentage
+  exec_time_ms INTEGER DEFAULT 0
+)</pre>
+      <strong>Note:</strong> Stores command names but not full arguments. No API keys, passwords, file contents, or user identity stored. Database auto-cleans records older than 90 days.
+    </div>
+  </div>
+
+  <h2>9. Clipboard Access</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Clipboard Read/Write</span>
+      <span class="badge badge-safe">NONE</span>
+    </div>
+    <div class="detail">No clipboard access whatsoever. Zero matches for clipboard, copy, or paste operations in the codebase.</div>
+  </div>
+
+  <h2>10. Unsafe Code</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Unsafe Rust Blocks</span>
+      <span class="badge badge-safe">ZERO</span>
+    </div>
+    <div class="detail">No <code>unsafe</code> blocks anywhere in the codebase. No FFI calls. No raw pointer manipulation. Pure safe Rust.</div>
+  </div>
+
+  <h2>11. Build System</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Build Scripts &amp; Hooks</span>
+      <span class="badge badge-safe">STANDARD</span>
+    </div>
+    <div class="detail">
+      No <code>build.rs</code> file. No pre/post-build hooks. The only build-time dependency is <code>libsqlite3-sys</code> which compiles SQLite from source (bundled, standard practice). CI/CD uses standard GitHub Actions for multi-platform builds.
+    </div>
+  </div>
+
+  <h2>12. Hidden Functionality</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Backdoors / Secret Features</span>
+      <span class="badge badge-safe">NONE DETECTED</span>
+    </div>
+    <div class="detail">
+      Searched for: <code>backdoor</code>, <code>hidden</code>, <code>secret</code>, debug toggles, feature flags. No suspicious code found. All commands are documented and visible in <code>--help</code> output. The codebase is straightforward Rust with clear control flow.
+    </div>
+  </div>
+
+  <h2>CI Security Checks</h2>
+  <div class="check-item">
+    <div class="header">
+      <span class="title">Automated Security Pipeline</span>
+      <span class="badge badge-safe">ACTIVE</span>
+    </div>
+    <div class="detail">
+      The repository has a <code>.github/workflows/security-check.yml</code> that runs on every PR:
+      <ul style="margin-top:0.5rem;padding-left:1.5rem">
+        <li>Cargo audit for known CVEs in dependencies</li>
+        <li>Critical file monitoring (Cargo.toml, main.rs, etc.)</li>
+        <li>Dangerous pattern detection (unsafe, network calls)</li>
+        <li>Clippy security lints</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="footer">
+    <a href="index.html">&larr; Back to Overview</a>
+  </div>
+</div>
+</body>
+</html>

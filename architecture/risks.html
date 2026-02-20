@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTK Risks &amp; Information Loss Analysis</title>
+<style>
+  :root { --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#bc8cff; }
+  * { margin:0;padding:0;box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6; }
+  .container { max-width:1100px;margin:0 auto;padding:2rem; }
+  h1 { font-size:1.8rem;margin-bottom:0.5rem; }
+  h2 { font-size:1.4rem;margin:2rem 0 1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem; }
+  h3 { font-size:1.05rem;margin:1.2rem 0 0.5rem;color:var(--accent); }
+  a { color:var(--accent);text-decoration:none; }
+  .back { margin-bottom:1.5rem;display:inline-block; }
+  .subtitle { color:var(--text-muted);margin-bottom:2rem; }
+  code { background:rgba(110,118,129,0.15);padding:2px 6px;border-radius:4px;font-size:0.9em; }
+  .risk-card { background:var(--surface);border-left:4px solid;border-radius:0 6px 6px 0;padding:1rem 1.2rem;margin:0.75rem 0; }
+  .risk-high { border-color:var(--red); }
+  .risk-med { border-color:var(--orange); }
+  .risk-low { border-color:var(--accent); }
+  .risk-card .title { font-weight:600;margin-bottom:0.3rem; }
+  .risk-card .severity { font-size:0.8rem;font-weight:600;margin-bottom:0.4rem; }
+  .sev-high { color:var(--red); }
+  .sev-med { color:var(--orange); }
+  .sev-low { color:var(--accent); }
+  .risk-card .detail { color:var(--text-muted);font-size:0.9rem; }
+  .risk-card .mitigation { margin-top:0.5rem;font-size:0.9rem; }
+  .risk-card .mitigation strong { color:var(--green); }
+  table { width:100%;border-collapse:collapse;margin:1rem 0; }
+  th,td { padding:0.5rem 0.8rem;text-align:left;border-bottom:1px solid var(--border);font-size:0.9rem; }
+  th { color:var(--text-muted);font-size:0.8rem;text-transform:uppercase; }
+  .footer { margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="index.html" class="back">&larr; Back to Overview</a>
+  <h1>Risks &amp; Information Loss</h1>
+  <p class="subtitle">What can go wrong when using RTK &mdash; and how to mitigate it</p>
+
+  <h2>Critical Risk: Information Loss from Filtering</h2>
+  <p>RTK's core purpose is to <strong>remove information</strong> from command output to save LLM tokens. This is inherently a trade-off: you lose context to gain efficiency. Here are the specific risks:</p>
+
+  <div class="risk-card risk-high">
+    <div class="severity sev-high">HIGH RISK</div>
+    <div class="title">Test output truncation hides failures</div>
+    <div class="detail">
+      <code>rtk cargo test</code> and <code>rtk vitest</code> show only failing tests. If the filter has a bug, it may misclassify a failure as a pass, hiding real test failures from the LLM. <strong>Issue #221</strong>: <code>rtk prettier --check</code> incorrectly reports "All files formatted correctly" when files actually need formatting.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Always verify with raw command when CI results seem suspicious. Use <code>rtk proxy &lt;cmd&gt;</code> for unfiltered output.</div>
+  </div>
+
+  <div class="risk-card risk-high">
+    <div class="severity sev-high">HIGH RISK</div>
+    <div class="title">Exit code swallowing breaks CI/CD</div>
+    <div class="detail">
+      Several open bugs report RTK returning exit code 0 when the underlying command failed:<br>
+      &bull; <strong>Issue #185</strong>: <code>rtk lint</code> doesn't propagate ESLint non-zero exit code<br>
+      &bull; <strong>Issue #162</strong>: <code>rtk grep</code> always returns 0 (rg returns 1 for no match, 2 for errors)<br>
+      &bull; <strong>Issue #221</strong>: <code>rtk prettier --check</code> shows success message with exit code 1<br>
+      This can cause CI pipelines to pass when they should fail.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Don't use RTK in CI/CD pipelines until exit code parity is verified for your specific commands.</div>
+  </div>
+
+  <div class="risk-card risk-high">
+    <div class="severity sev-high">HIGH RISK</div>
+    <div class="title">gh issue/PR body truncation</div>
+    <div class="detail">
+      <strong>Issue #188</strong> (now fixed in v0.22.1): <code>rtk gh issue view</code> truncated issue bodies to ~21 lines, making it impossible to read full GitHub issues. <strong>Issue #199</strong>: <code>rtk gh api</code> truncates output, corrupting data used for programmatic updates.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Update to v0.22.1 for the gh fix. For <code>gh api</code>, use <code>rtk proxy gh api</code> or raw <code>gh api</code>.</div>
+  </div>
+
+  <div class="risk-card risk-med">
+    <div class="severity sev-med">MEDIUM RISK</div>
+    <div class="title">Argument parsing failures reject valid commands</div>
+    <div class="detail">
+      RTK uses Clap for argument parsing, which can reject flags the underlying tool accepts:<br>
+      &bull; <strong>Issue #228</strong>: <code>rtk git --no-pager diff</code> fails (git global options before subcommand)<br>
+      &bull; <strong>Issue #204</strong>: <code>rtk find -name "*.py"</code> and <code>rtk grep -n</code> fail<br>
+      &bull; <strong>Issue #229</strong>: <code>rtk grep -E 'pattern'</code> fails<br>
+      &bull; <strong>Issue #163</strong>: <code>rtk git -C &lt;path&gt;</code> rejected<br>
+      When RTK can't parse arguments, the command doesn't run at all.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Use <code>rtk proxy &lt;full command&gt;</code> as fallback, or run the raw command directly.</div>
+  </div>
+
+  <div class="risk-card risk-med">
+    <div class="severity sev-med">MEDIUM RISK</div>
+    <div class="title">Output duplication/corruption</div>
+    <div class="detail">
+      <strong>Issue #186</strong>: <code>rtk lint</code> duplicates ESLint diagnostics and misreports summary counts (shows "3 errors, 5 warnings" when ESLint reports "0 errors, 3 warnings"). The LLM gets incorrect information about the codebase state.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Cross-reference RTK output with raw command for critical decisions.</div>
+  </div>
+
+  <div class="risk-card risk-med">
+    <div class="severity sev-med">MEDIUM RISK</div>
+    <div class="title">Proxy mode doesn't stream output</div>
+    <div class="detail">
+      <strong>Issue #222</strong>: <code>rtk proxy</code> buffers all output until command completion. For long-running commands (deploys, log tails), there's no progressive output &mdash; just silence followed by a dump. Hard to distinguish "running" from "stuck".
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> For long-running commands, run them directly without RTK.</div>
+  </div>
+
+  <div class="risk-card risk-low">
+    <div class="severity sev-low">LOW RISK</div>
+    <div class="title">Windows compatibility issues</div>
+    <div class="detail">
+      <strong>Issue #212</strong>: RTK can't resolve .CMD/.BAT wrappers on Windows. All Node.js tools (vitest, eslint, tsc, prettier, pnpm) fail with "program not found". Rust's <code>Command::new()</code> doesn't honor Windows PATHEXT.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> On Windows, use <code>rtk err cmd /c &lt;tool&gt;</code> as workaround.</div>
+  </div>
+
+  <div class="risk-card risk-low">
+    <div class="severity sev-low">LOW RISK</div>
+    <div class="title">curl filter strips response data</div>
+    <div class="detail">
+      <strong>Issue #219</strong>: RTK's curl filter auto-detects JSON and converts values to type schemas. Breaks use cases where the LLM needs actual data (e.g., querying localhost APIs).
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Use <code>rtk proxy curl</code> or raw <code>curl</code> when you need full response data.</div>
+  </div>
+
+  <h2>Data Persistence Risks</h2>
+
+  <div class="risk-card risk-low">
+    <div class="severity sev-low">LOW RISK</div>
+    <div class="title">Command history in SQLite</div>
+    <div class="detail">
+      The tracking database stores command names (not arguments) in plaintext. While it doesn't store sensitive arguments, the command history itself could reveal project structure and workflow patterns. Located at <code>~/.local/share/rtk/tracking.db</code>.
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Disable tracking with <code>[tracking] enabled = false</code> in config, or delete the database file.</div>
+  </div>
+
+  <div class="risk-card risk-low">
+    <div class="severity sev-low">LOW RISK</div>
+    <div class="title">Tee files contain unfiltered output</div>
+    <div class="detail">
+      When commands fail, raw unfiltered output (which may contain secrets in error messages) is saved to <code>~/.local/share/rtk/tee/</code>. Files persist until rotated (max 20 files).
+    </div>
+    <div class="mitigation"><strong>Mitigation:</strong> Disable with <code>RTK_TEE=0</code> env var or <code>[tee] enabled = false</code> in config. Delete <code>~/.local/share/rtk/tee/</code> to clean up.</div>
+  </div>
+
+  <h2>What RTK Cannot Do (Harm Assessment)</h2>
+  <table>
+    <tr><th>Threat</th><th>Possible?</th><th>Why</th></tr>
+    <tr><td>Steal your code</td><td style="color:var(--green)">NO</td><td>No network capabilities. Cannot upload anything anywhere.</td></tr>
+    <tr><td>Modify your files</td><td style="color:var(--green)">NO</td><td>Only writes to its own data dirs (~/.local/share/rtk/, ~/.config/rtk/). Never touches project files during normal operation.</td></tr>
+    <tr><td>Delete your data</td><td style="color:var(--green)">NO</td><td>No delete operations on user files. Only deletes its own old tee/tracking records.</td></tr>
+    <tr><td>Install malware</td><td style="color:var(--green)">NO</td><td>No download capability, no network access, no code execution beyond spawning the command you asked for.</td></tr>
+    <tr><td>Intercept credentials</td><td style="color:var(--green)">NO</td><td>No keyring access, no clipboard access, no credential storage.</td></tr>
+    <tr><td>Run commands you didn't ask for</td><td style="color:var(--green)">NO</td><td>Only executes the exact command you pass as arguments.</td></tr>
+    <tr><td>Phone home / report usage</td><td style="color:var(--green)">NO</td><td>No network stack in dependency tree. Physically impossible.</td></tr>
+    <tr><td>Drop important output</td><td style="color:var(--orange)"><strong>YES</strong></td><td>This is RTK's purpose! Filtering inherently removes information. See risks above.</td></tr>
+    <tr><td>Return incorrect exit codes</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Known bugs where exit codes are swallowed (Issues #162, #185, #221).</td></tr>
+    <tr><td>Fail on valid commands</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Clap argument parsing rejects some valid flags (Issues #204, #228, #229).</td></tr>
+  </table>
+
+  <h2>Recommendations</h2>
+  <ol style="padding-left:1.5rem">
+    <li><strong>Use <code>rtk proxy &lt;cmd&gt;</code></strong> as escape hatch for any command where you need exact output</li>
+    <li><strong>Don't use RTK in CI/CD</strong> until exit code bugs are resolved for your commands</li>
+    <li><strong>Verify critical decisions</strong> with raw command output (especially lint/test results)</li>
+    <li><strong>Keep RTK updated</strong> &mdash; the project is actively fixing these bugs</li>
+    <li><strong>Disable tee</strong> if you work with sensitive data (<code>RTK_TEE=0</code>)</li>
+    <li><strong>Review the hook script</strong> at <code>~/.claude/hooks/rtk-rewrite.sh</code> after <code>rtk init</code></li>
+  </ol>
+
+  <div class="footer">
+    <a href="index.html">&larr; Back to Overview</a>
+  </div>
+</div>
+</body>
+</html>

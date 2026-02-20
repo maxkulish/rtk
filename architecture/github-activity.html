@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RTK GitHub Issues &amp; Pull Requests</title>
+<style>
+  :root { --bg:#0d1117;--surface:#161b22;--border:#30363d;--text:#c9d1d9;--text-muted:#8b949e;--accent:#58a6ff;--green:#3fb950;--red:#f85149;--orange:#d29922;--purple:#bc8cff; }
+  * { margin:0;padding:0;box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.6; }
+  .container { max-width:1200px;margin:0 auto;padding:2rem; }
+  h1 { font-size:1.8rem;margin-bottom:0.5rem; }
+  h2 { font-size:1.4rem;margin:2rem 0 1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem; }
+  h3 { font-size:1.05rem;margin:1.2rem 0 0.5rem;color:var(--accent); }
+  a { color:var(--accent);text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  .back { margin-bottom:1.5rem;display:inline-block; }
+  .subtitle { color:var(--text-muted);margin-bottom:2rem; }
+  code { background:rgba(110,118,129,0.15);padding:2px 6px;border-radius:4px;font-size:0.9em; }
+  table { width:100%;border-collapse:collapse;margin:1rem 0;font-size:0.85rem; }
+  th,td { padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid var(--border); }
+  th { color:var(--text-muted);font-size:0.75rem;text-transform:uppercase;position:sticky;top:0;background:var(--bg); }
+  .badge { display:inline-block;padding:1px 6px;border-radius:10px;font-size:0.7rem;font-weight:600; }
+  .badge-open { background:rgba(63,185,80,0.15);color:var(--green);border:1px solid rgba(63,185,80,0.3); }
+  .badge-closed { background:rgba(188,140,255,0.15);color:var(--purple);border:1px solid rgba(188,140,255,0.3); }
+  .badge-merged { background:rgba(188,140,255,0.15);color:var(--purple);border:1px solid rgba(188,140,255,0.3); }
+  .badge-bug { background:rgba(248,81,73,0.15);color:var(--red);border:1px solid rgba(248,81,73,0.3); }
+  .badge-feat { background:rgba(88,166,255,0.15);color:var(--accent);border:1px solid rgba(88,166,255,0.3); }
+  .stat-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin:1rem 0; }
+  .stat-card { background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:1rem;text-align:center; }
+  .stat-card .value { font-size:2rem;font-weight:700; }
+  .stat-card .label { color:var(--text-muted);font-size:0.85rem; }
+  .summary-box { background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.5rem;margin:1rem 0; }
+  .footer { margin-top:3rem;padding-top:1rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <a href="index.html" class="back">&larr; Back to Overview</a>
+  <h1>GitHub Issues &amp; Pull Requests</h1>
+  <p class="subtitle">Community activity analysis for <a href="https://github.com/rtk-ai/rtk">rtk-ai/rtk</a> &mdash; as of 2026-02-20</p>
+
+  <div class="stat-grid">
+    <div class="stat-card">
+      <div class="value" style="color:var(--green)">~40+</div>
+      <div class="label">Open Issues</div>
+    </div>
+    <div class="stat-card">
+      <div class="value" style="color:var(--purple)">~8</div>
+      <div class="label">Closed Issues</div>
+    </div>
+    <div class="stat-card">
+      <div class="value" style="color:var(--accent)">30+</div>
+      <div class="label">Pull Requests</div>
+    </div>
+    <div class="stat-card">
+      <div class="value" style="color:var(--purple)">12</div>
+      <div class="label">Merged PRs</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">40+</div>
+      <div class="label">Contributors</div>
+    </div>
+    <div class="stat-card">
+      <div class="value">5 days</div>
+      <div class="label">Project Age (~Feb 14-20)</div>
+    </div>
+  </div>
+
+  <div class="summary-box">
+    <h3 style="margin-top:0">Key Observations</h3>
+    <ul style="padding-left:1.5rem">
+      <li><strong>Very active project</strong> &mdash; 40+ issues and 30+ PRs in about 5 days. Rapid growth phase.</li>
+      <li><strong>Community-driven</strong> &mdash; Most PRs come from external contributors, not just the maintainer</li>
+      <li><strong>Pattern of bugs:</strong> Argument parsing failures (Clap can't handle all CLI flag styles)</li>
+      <li><strong>Pattern of bugs:</strong> Exit code swallowing (RTK returns 0 when underlying command fails)</li>
+      <li><strong>Pattern of bugs:</strong> Output corruption (duplication, miscount, truncation)</li>
+      <li><strong>No security issues reported</strong> &mdash; All bugs are functional, not security-related</li>
+      <li><strong>Feature requests dominate:</strong> kubectl, helm, gcloud, AWS CLI, .NET, Elixir, Java support</li>
+      <li><strong>Maintainer is responsive</strong> &mdash; Issues get labeled and PRs get reviewed within hours</li>
+    </ul>
+  </div>
+
+  <h2>Open Issues by Category</h2>
+
+  <h3>Bugs (Argument Parsing)</h3>
+  <table>
+    <tr><th>#</th><th>Title</th><th>Impact</th></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/229">#229</a></td><td>grep: unexpected argument <code>-E</code></td><td>Common Claude pattern broken</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/228">#228</a></td><td>git global options (<code>--no-pager</code>) before subcommands don't work</td><td>Claude Code uses this pattern</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/204">#204</a></td><td><code>find</code> and <code>grep</code> commands fail (<code>-n</code> rejected)</td><td>Common flags rejected</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/163">#163</a></td><td><code>rtk git -C &lt;path&gt;</code> rejected</td><td>Cross-directory git ops broken</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/170">#170</a></td><td>rtk-rewrite.sh doesn't translate POSIX find arguments</td><td>Hook rewrite breaks find</td></tr>
+  </table>
+
+  <h3>Bugs (Exit Codes &amp; Output)</h3>
+  <table>
+    <tr><th>#</th><th>Title</th><th>Impact</th></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/221">#221</a></td><td>rtk prettier --check reports "all good" with failures</td><td>Silent false negative</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/162">#162</a></td><td>rtk grep always returns exit 0</td><td>Breaks shell workflow control</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/186">#186</a></td><td>rtk lint duplicates diagnostics, misreports counts</td><td>LLM gets wrong info</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/222">#222</a></td><td>rtk proxy doesn't stream output progressively</td><td>Long commands appear stuck</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/223">#223</a></td><td>rtk gh issue view -R fails outside git repo</td><td>Breaks non-repo scripts</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/187">#187</a></td><td>rtk proxy bun run lint reorders output</td><td>Line order fidelity broken</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/212">#212</a></td><td>RTK can't resolve .CMD/.BAT on Windows</td><td>All Node tools fail on Windows</td></tr>
+  </table>
+
+  <h3>Feature Requests (Ecosystem Support)</h3>
+  <table>
+    <tr><th>#</th><th>Title</th><th>Ecosystem</th></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/181">#181</a></td><td>kubectl filter support</td><td>Kubernetes</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/182">#182</a></td><td>helm filter support</td><td>Kubernetes</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/183">#183</a></td><td>gcloud CLI filter support</td><td>Google Cloud</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/205">#205</a></td><td>AWS CLI support</td><td>AWS</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/191">#191</a></td><td>dotnet / MSBuild filters</td><td>.NET</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/147">#147</a></td><td>Java/Kotlin, Spring Boot, Maven</td><td>JVM</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/168">#168</a></td><td>Elixir mix commands</td><td>Elixir</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/195">#195</a></td><td>Oxlint and Oxfmt support</td><td>TypeScript</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/213">#213</a></td><td>Cursor IDE support</td><td>IDE</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/169">#169</a></td><td>Codex CLI support</td><td>IDE</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/117">#117</a></td><td>OpenCode support</td><td>IDE</td></tr>
+  </table>
+
+  <h3>Architecture / Improvement Requests</h3>
+  <table>
+    <tr><th>#</th><th>Title</th></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/139">#139</a></td><td>Plugin system for custom integrations</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/154">#154</a></td><td>Migrate rtk-rewrite.sh from bash to Rust subcommand</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/142">#142</a></td><td>Session summary hook for end-of-session analytics</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/115">#115</a></td><td>Safe command remapping (rm &rarr; trash)</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/146">#146</a></td><td>sudo prefix support for hook</td></tr>
+    <tr><td><a href="https://github.com/rtk-ai/rtk/issues/189">#189</a></td><td>Skip binary builds for non-code releases</td></tr>
+  </table>
+
+  <h2>Recent Pull Requests</h2>
+  <table>
+    <tr><th>#</th><th>State</th><th>Author</th><th>Title</th><th>Size</th></tr>
+    <tr><td>#227</td><td><span class="badge badge-open">OPEN</span></td><td>polaminggkub-debug</td><td>fix: propagate rg exit code in rtk grep</td><td>+15/-0</td></tr>
+    <tr><td>#226</td><td><span class="badge badge-open">OPEN</span></td><td>denneulin</td><td>feat: yarn workspace command with smart filter routing</td><td>+799/-3</td></tr>
+    <tr><td>#225</td><td><span class="badge badge-open">OPEN</span></td><td>AlecMcQuarrie</td><td>Feature: OpenCode integration</td><td>+1028/-8</td></tr>
+    <tr><td>#216</td><td><span class="badge badge-open">OPEN</span></td><td>itai-sagi</td><td>feat: add AWS CLI and psql modules</td><td>+1283/-0</td></tr>
+    <tr><td>#214</td><td><span class="badge badge-merged">MERGED</span></td><td>jbronssin</td><td>fix: smart markdown body filter for gh issue/pr view</td><td>+262/-17</td></tr>
+    <tr><td>#211</td><td><span class="badge badge-open">OPEN</span></td><td>sahilmgandhi</td><td>fix(find): accept native find flags</td><td>+324/-30</td></tr>
+    <tr><td>#207</td><td><span class="badge badge-merged">MERGED</span></td><td>polaminggkub-debug</td><td>fix: propagate linter exit code in rtk lint</td><td>+4/-0</td></tr>
+    <tr><td>#206</td><td><span class="badge badge-merged">MERGED</span></td><td>heAdz0r</td><td>fix(grep): translate BRE alternation for rg</td><td>+46/-1</td></tr>
+    <tr><td>#203</td><td><span class="badge badge-merged">MERGED</span></td><td>axelbellec</td><td>fix(git): support multiple -m flags</td><td>+156/-16</td></tr>
+    <tr><td>#200</td><td><span class="badge badge-open">OPEN</span></td><td>guillaumedeslandes</td><td>feat: passthrough fallback when Clap parse fails</td><td>+358/-1</td></tr>
+    <tr><td>#198</td><td><span class="badge badge-open">OPEN</span></td><td>deril</td><td>feat(rspec): add RSpec test runner</td><td>+647/-0</td></tr>
+    <tr><td>#194</td><td><span class="badge badge-merged">MERGED</span></td><td>guillaumedeslandes</td><td>fix: git branch creation silently swallowed</td><td>+73/-7</td></tr>
+    <tr><td>#192</td><td><span class="badge badge-open">OPEN</span></td><td>guillaumedeslandes</td><td>fix: support git global options (-C, -c, etc.)</td><td>+271/-93</td></tr>
+    <tr><td>#175</td><td><span class="badge badge-merged">MERGED</span></td><td>heAdz0r</td><td>feat: add rtk wc command</td><td>+413/-0</td></tr>
+    <tr><td>#174</td><td><span class="badge badge-open">OPEN</span></td><td>ousamabenyounes</td><td>feat: Gemini CLI support via rtk init --gemini</td><td>+740/-93</td></tr>
+    <tr><td>#172</td><td><span class="badge badge-open">OPEN</span></td><td>danielmarbach</td><td>Add dotnet support (build/test/restore)</td><td>+3001/-1</td></tr>
+  </table>
+
+  <h2>Project Health Assessment</h2>
+  <div class="summary-box">
+    <h3 style="margin-top:0;color:var(--green)">Positive Signals</h3>
+    <ul style="padding-left:1.5rem;margin-bottom:1rem">
+      <li>Very active community contributions (many different authors)</li>
+      <li>Responsive maintainer (issues labeled within hours)</li>
+      <li>Security CI pipeline in place (cargo audit, pattern detection)</li>
+      <li>MIT license &mdash; fully open source</li>
+      <li>No security vulnerabilities reported by anyone</li>
+      <li>Clean dependency tree (no network crates)</li>
+    </ul>
+    <h3 style="color:var(--orange)">Concerns</h3>
+    <ul style="padding-left:1.5rem">
+      <li>Very young project (~1 week old as of audit date) &mdash; expect rough edges</li>
+      <li>Many open bugs in argument parsing &mdash; common commands may fail</li>
+      <li>Exit code parity not reliable yet &mdash; don't trust for CI/CD</li>
+      <li>Rapid growth means code review may not catch all issues</li>
+      <li>CLAUDE.md preference for French may confuse non-French contributors (#173)</li>
+    </ul>
+  </div>
+
+  <div class="footer">
+    <a href="index.html">&larr; Back to Overview</a>
+  </div>
+</div>
+</body>
+</html>
