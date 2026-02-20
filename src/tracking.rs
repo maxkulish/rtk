@@ -257,6 +257,43 @@ impl Tracker {
         Ok(Self { conn })
     }
 
+    /// Create a tracker with a specific database path.
+    ///
+    /// Used by tests to avoid polluting the production database.
+    #[cfg(test)]
+    pub fn with_path(db_path: &std::path::Path) -> Result<Self> {
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let conn = Connection::open(db_path)?;
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS commands (
+                id INTEGER PRIMARY KEY,
+                timestamp TEXT NOT NULL,
+                original_cmd TEXT NOT NULL,
+                rtk_cmd TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                saved_tokens INTEGER NOT NULL,
+                savings_pct REAL NOT NULL
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_timestamp ON commands(timestamp)",
+            [],
+        )?;
+
+        let _ = conn.execute(
+            "ALTER TABLE commands ADD COLUMN exec_time_ms INTEGER DEFAULT 0",
+            [],
+        );
+
+        Ok(Self { conn })
+    }
+
     /// Record a command execution with token counts and timing.
     ///
     /// Calculates savings metrics and stores the record in the database.
@@ -858,6 +895,17 @@ pub fn args_display(args: &[OsString]) -> String {
 mod tests {
     use super::*;
 
+    use std::sync::Mutex;
+
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    fn test_tracker() -> (Tracker, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        let tracker = Tracker::with_path(&db_path).unwrap();
+        (tracker, dir)
+    }
+
     // 1. estimate_tokens — verify ~4 chars/token ratio
     #[test]
     fn test_estimate_tokens() {
@@ -879,94 +927,85 @@ mod tests {
         assert_eq!(args_display(&single), "log");
     }
 
-    // 3. Tracker::record + get_recent — round-trip DB
+    // 3. Tracker::record + get_recent — round-trip DB (temp DB)
     #[test]
     fn test_tracker_record_and_recent() {
-        let tracker = Tracker::new().expect("Failed to create tracker");
-
-        // Use unique test identifier to avoid conflicts with other tests
-        let test_cmd = format!("rtk git status test_{}", std::process::id());
+        let (tracker, _dir) = test_tracker();
 
         tracker
-            .record("git status", &test_cmd, 100, 20, 50)
+            .record("git status", "rtk git status", 100, 20, 50)
             .expect("Failed to record");
 
         let recent = tracker.get_recent(10).expect("Failed to get recent");
-
-        // Find our specific test record
-        let test_record = recent
-            .iter()
-            .find(|r| r.rtk_cmd == test_cmd)
-            .expect("Test record not found in recent commands");
-
-        assert_eq!(test_record.saved_tokens, 80);
-        assert_eq!(test_record.savings_pct, 80.0);
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].rtk_cmd, "rtk git status");
+        assert_eq!(recent[0].saved_tokens, 80);
+        assert_eq!(recent[0].savings_pct, 80.0);
     }
 
     // 4. track_passthrough doesn't dilute stats (input=0, output=0)
     #[test]
     fn test_track_passthrough_no_dilution() {
-        let tracker = Tracker::new().expect("Failed to create tracker");
+        let (tracker, _dir) = test_tracker();
 
-        // Use unique test identifiers
-        let pid = std::process::id();
-        let cmd1 = format!("rtk cmd1_test_{}", pid);
-        let cmd2 = format!("rtk cmd2_passthrough_test_{}", pid);
-
-        // Record one real command with 80% savings
         tracker
-            .record("cmd1", &cmd1, 1000, 200, 10)
+            .record("cmd1", "rtk cmd1", 1000, 200, 10)
             .expect("Failed to record cmd1");
 
-        // Record passthrough (0, 0)
         tracker
-            .record("cmd2", &cmd2, 0, 0, 5)
+            .record("cmd2", "rtk cmd2 passthrough", 0, 0, 5)
             .expect("Failed to record passthrough");
 
-        // Verify both records exist in recent history
         let recent = tracker.get_recent(20).expect("Failed to get recent");
+        assert_eq!(recent.len(), 2);
 
         let record1 = recent
             .iter()
-            .find(|r| r.rtk_cmd == cmd1)
+            .find(|r| r.rtk_cmd == "rtk cmd1")
             .expect("cmd1 record not found");
         let record2 = recent
             .iter()
-            .find(|r| r.rtk_cmd == cmd2)
+            .find(|r| r.rtk_cmd == "rtk cmd2 passthrough")
             .expect("passthrough record not found");
 
-        // Verify cmd1 has 80% savings
         assert_eq!(record1.saved_tokens, 800);
         assert_eq!(record1.savings_pct, 80.0);
 
-        // Verify passthrough has 0% savings
         assert_eq!(record2.saved_tokens, 0);
         assert_eq!(record2.savings_pct, 0.0);
-
-        // This validates that passthrough (0 input, 0 output) doesn't dilute stats
-        // because the savings calculation is correct for both cases
     }
 
-    // 5. TimedExecution::track records with exec_time > 0
+    // 5. TimedExecution::track records with exec_time > 0 (temp DB via env var)
     #[test]
     fn test_timed_execution_records_time() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        std::env::set_var("RTK_DB_PATH", &db_path);
+
         let timer = TimedExecution::start();
         std::thread::sleep(std::time::Duration::from_millis(10));
         timer.track("test cmd", "rtk test", "raw input data", "filtered");
 
-        // Verify via DB that record exists
-        let tracker = Tracker::new().expect("Failed to create tracker");
+        let tracker = Tracker::with_path(&db_path).expect("Failed to create tracker");
         let recent = tracker.get_recent(5).expect("Failed to get recent");
         assert!(recent.iter().any(|r| r.rtk_cmd == "rtk test"));
+
+        std::env::remove_var("RTK_DB_PATH");
     }
 
-    // 6. TimedExecution::track_passthrough records with 0 tokens
+    // 6. TimedExecution::track_passthrough records with 0 tokens (temp DB via env var)
     #[test]
     fn test_timed_execution_passthrough() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("test.db");
+        std::env::set_var("RTK_DB_PATH", &db_path);
+
         let timer = TimedExecution::start();
         timer.track_passthrough("git tag", "rtk git tag (passthrough)");
 
-        let tracker = Tracker::new().expect("Failed to create tracker");
+        let tracker = Tracker::with_path(&db_path).expect("Failed to create tracker");
         let recent = tracker.get_recent(5).expect("Failed to get recent");
 
         let pt = recent
@@ -974,32 +1013,30 @@ mod tests {
             .find(|r| r.rtk_cmd.contains("passthrough"))
             .expect("Passthrough record not found");
 
-        // savings_pct should be 0 for passthrough
         assert_eq!(pt.savings_pct, 0.0);
         assert_eq!(pt.saved_tokens, 0);
+
+        std::env::remove_var("RTK_DB_PATH");
     }
 
     // 7. get_db_path respects environment variable RTK_DB_PATH
     #[test]
     fn test_custom_db_path_env() {
-        use std::env;
-
+        let _lock = ENV_MUTEX.lock().unwrap();
         let custom_path = "/tmp/rtk_test_custom.db";
-        env::set_var("RTK_DB_PATH", custom_path);
+        std::env::set_var("RTK_DB_PATH", custom_path);
 
         let db_path = get_db_path().expect("Failed to get db path");
         assert_eq!(db_path, PathBuf::from(custom_path));
 
-        env::remove_var("RTK_DB_PATH");
+        std::env::remove_var("RTK_DB_PATH");
     }
 
     // 8. get_db_path falls back to default when no custom config
     #[test]
     fn test_default_db_path() {
-        use std::env;
-
-        // Ensure no env var is set
-        env::remove_var("RTK_DB_PATH");
+        let _lock = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("RTK_DB_PATH");
 
         let db_path = get_db_path().expect("Failed to get db path");
         assert!(db_path.ends_with("rtk/history.db"));
