@@ -545,16 +545,10 @@ When user provides a numbered plan (QW1-QW4, Phase 1-5, sprint tasks, etc.):
 
 **Why**: Plan-driven execution produces better outcomes than ad-hoc implementation. Structured plans help maintain focus and prevent scope creep.
 
-## Language & Communication
+## Communication
 
-- **User communicates in French**: Respond in French unless explicitly writing English content (docs, code comments, READMEs)
-- **"reprend"**: Resume previous task where it was left off
-- **Be direct**: User prefers direct, factual communication (Bold Guy style - cash, bienveillant, énergique)
-
-**Examples**:
-- ✅ "Ça ne va pas marcher parce que X. Voici ce que je ferais : Y."
-- ✅ "Le test échoue car le regex ne capture pas les commits merge. Fix : ajouter `(?:Merge|commit)`."
-- ❌ "Je pense que peut-être nous pourrions éventuellement envisager de..." (trop verbeux, pas direct)
+- **Be direct**: Prefer direct, factual communication
+- Avoid verbose hedging — state what's wrong and what to do about it
 
 ## Filter Development Checklist
 
