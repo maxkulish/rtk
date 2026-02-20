@@ -114,11 +114,6 @@ fn build_command() -> Option<Command> {
     None
 }
 
-/// Check if ccusage CLI is available (binary or via npx)
-pub fn is_available() -> bool {
-    build_command().is_some()
-}
-
 /// Fetch usage data from ccusage for the last 90 days
 ///
 /// Returns `Ok(None)` if ccusage is unavailable (graceful degradation)
@@ -332,9 +327,9 @@ mod tests {
     }
 
     #[test]
-    fn test_is_available() {
+    fn test_build_command() {
         // Just smoke test - actual availability depends on system
-        let _available = is_available();
+        let _cmd = build_command();
         // No assertion - just ensure it doesn't panic
     }
 }

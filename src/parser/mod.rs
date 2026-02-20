@@ -7,7 +7,7 @@
 //!
 //! The three-tier system ensures RTK never returns false data silently.
 
-pub mod error;
+#[allow(dead_code)]
 pub mod formatter;
 pub mod types;
 
@@ -27,6 +27,7 @@ pub enum ParseResult<T> {
     Passthrough(String),
 }
 
+#[allow(dead_code)]
 impl<T> ParseResult<T> {
     /// Unwrap the parsed data, panicking on Passthrough
     pub fn unwrap(self) -> T {
@@ -83,16 +84,6 @@ pub trait OutputParser: Sized {
     /// 2. Try regex/text extraction with partial data
     /// 3. Return truncated passthrough with `[RTK:PASSTHROUGH]` marker
     fn parse(input: &str) -> ParseResult<Self::Output>;
-
-    /// Parse with explicit tier preference (for testing/debugging)
-    fn parse_with_tier(input: &str, max_tier: u8) -> ParseResult<Self::Output> {
-        let result = Self::parse(input);
-        if result.tier() > max_tier {
-            // Force degradation to passthrough if exceeds max tier
-            return ParseResult::Passthrough(truncate_output(input, 500));
-        }
-        result
-    }
 }
 
 /// Truncate output to max length with ellipsis

@@ -6,23 +6,24 @@ use std::collections::HashMap;
 use std::process::Command;
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct RuffLocation {
     row: usize,
     column: usize,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct RuffFix {
-    #[allow(dead_code)]
     applicability: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct RuffDiagnostic {
     code: String,
     message: String,
     location: RuffLocation,
-    #[allow(dead_code)]
     end_location: Option<RuffLocation>,
     filename: String,
     fix: Option<RuffFix>,

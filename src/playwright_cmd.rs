@@ -49,6 +49,7 @@ struct PlaywrightTest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct PlaywrightTestResult {
     #[serde(rename = "status")]
     status: String,
