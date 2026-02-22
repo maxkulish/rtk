@@ -1,0 +1,4 @@
+Checking formatting...
+[error] src/broken.ts: SyntaxError: Unexpected token (3:1)
+[error] src/bad.js: SyntaxError: Missing semicolon. (10:5)
+[warn] src/messy.css

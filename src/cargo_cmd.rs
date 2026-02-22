@@ -55,8 +55,9 @@ where
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
-    let filtered = filter_fn(&raw);
+    let mut filtered = filter_fn(&raw);
 
+    crate::utils::ensure_failure_visibility(&mut filtered, exit_code, &stderr);
     if let Some(hint) = crate::tee::tee_and_hint(&raw, &format!("cargo_{}", subcommand), exit_code)
     {
         println!("{}\n{}", filtered, hint);
