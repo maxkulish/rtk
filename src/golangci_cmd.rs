@@ -81,8 +81,11 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
         &filtered,
     );
 
-    // golangci-lint returns exit code 1 when issues found (expected behavior)
-    // Don't exit with error code in that case
+    // Propagate exit code (including exit 1 for issues found)
+    // Users who don't want this can configure: golangci-lint run --issues-exit-code 0
+    if !output.status.success() {
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
     Ok(())
 }
 
