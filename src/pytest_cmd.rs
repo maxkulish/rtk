@@ -51,12 +51,13 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let raw = format!("{}\n{}", stdout, stderr);
 
-    let filtered = filter_pytest_output(&stdout);
+    let mut filtered = filter_pytest_output(&stdout);
 
     let exit_code = output
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
+    crate::utils::ensure_failure_visibility(&mut filtered, exit_code, &stderr);
     if let Some(hint) = crate::tee::tee_and_hint(&raw, "pytest", exit_code) {
         println!("{}\n{}", filtered, hint);
     } else {

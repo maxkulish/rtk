@@ -156,7 +156,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
     let raw = format!("{}\n{}", stdout, stderr);
 
     // Dispatch to appropriate filter based on linter
-    let filtered = match linter {
+    let mut filtered = match linter {
         "eslint" => filter_eslint_json(&stdout),
         "ruff" => {
             // Reuse ruff_cmd's JSON parser
@@ -175,6 +175,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
+    crate::utils::ensure_failure_visibility(&mut filtered, exit_code, &stderr);
     if let Some(hint) = crate::tee::tee_and_hint(&raw, "lint", exit_code) {
         println!("{}\n{}", filtered, hint);
     } else {

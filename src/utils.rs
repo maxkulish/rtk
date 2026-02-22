@@ -225,6 +225,65 @@ pub fn package_manager_exec(tool: &str) -> Command {
     }
 }
 
+/// Safety net: if command failed but filtered output looks like success,
+/// append a warning to the output string so LLMs see the mismatch.
+///
+/// This catches filter bugs where the filter incorrectly claims success
+/// while the underlying command actually failed (non-zero exit code).
+pub fn ensure_failure_visibility(filtered: &mut String, exit_code: i32, raw_stderr: &str) {
+    if exit_code == 0 {
+        return;
+    }
+    let dominated_by_success = filtered.starts_with("✓")
+        || filtered.contains("No issues found")
+        || filtered
+            .to_lowercase()
+            .contains("all files formatted correctly")
+        || filtered.contains("All tests passed");
+
+    if dominated_by_success {
+        filtered.push_str(&format!(
+            "\n\n⚠️  Command exited with code {} but output looked clean.\n",
+            exit_code
+        ));
+        if !raw_stderr.trim().is_empty() {
+            let preview: String = raw_stderr.lines().take(5).collect::<Vec<_>>().join("\n");
+            filtered.push_str(&format!("stderr: {}\n", preview));
+        }
+        filtered.push_str("Run raw command to verify.");
+    }
+}
+
+#[test]
+fn test_ensure_failure_visibility_mismatch() {
+    let mut output = "✓ Prettier: All files formatted correctly".to_string();
+    ensure_failure_visibility(&mut output, 1, "");
+    assert!(output.contains("⚠️"));
+    assert!(output.contains("exited with code 1"));
+}
+
+#[test]
+fn test_ensure_failure_visibility_no_mismatch() {
+    let mut output = "Prettier: 3 files need formatting".to_string();
+    ensure_failure_visibility(&mut output, 1, "");
+    assert!(!output.contains("⚠️"));
+}
+
+#[test]
+fn test_ensure_failure_visibility_success_exit() {
+    let mut output = "✓ Prettier: All files formatted correctly".to_string();
+    ensure_failure_visibility(&mut output, 0, "");
+    assert!(!output.contains("⚠️"));
+}
+
+#[test]
+fn test_ensure_failure_visibility_with_stderr() {
+    let mut output = "✓ ESLint: No issues found".to_string();
+    ensure_failure_visibility(&mut output, 1, "Error: something went wrong\nline 2");
+    assert!(output.contains("⚠️"));
+    assert!(output.contains("something went wrong"));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

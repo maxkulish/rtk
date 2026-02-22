@@ -1,0 +1,6 @@
+Checking formatting...
+[warn] src/components/Button.tsx
+[warn] src/lib/utils.ts
+[warn] src/pages/index.vue
+[warn] config.yaml
+Code style issues found in the above file(s). Forgot to run Prettier?

@@ -241,7 +241,7 @@ fn run_vitest(args: &[String], verbose: u8) -> Result<()> {
     let parse_result = VitestParser::parse(&stdout);
     let mode = FormatMode::from_verbosity(verbose);
 
-    let filtered = match parse_result {
+    let mut filtered = match parse_result {
         ParseResult::Full(data) => {
             if verbose > 0 {
                 eprintln!("vitest run (Tier 1: Full JSON parse)");
@@ -261,6 +261,7 @@ fn run_vitest(args: &[String], verbose: u8) -> Result<()> {
     };
 
     let exit_code = output.status.code().unwrap_or(1);
+    crate::utils::ensure_failure_visibility(&mut filtered, exit_code, &stderr);
     if let Some(hint) = crate::tee::tee_and_hint(&combined, "vitest_run", exit_code) {
         println!("{}\n{}", filtered, hint);
     } else {
