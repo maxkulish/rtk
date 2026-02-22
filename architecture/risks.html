@@ -56,17 +56,19 @@
     <div class="mitigation"><strong>Fixed in v0.22.5:</strong> Rewrote <code>filter_prettier_output()</code> to parse <code>[warn]</code>/<code>[error]</code> prefixes directly; removed hardcoded extension list; success now requires explicit "All matched files use Prettier" confirmation. Added <code>ensure_failure_visibility()</code> guard to all high-risk filters (prettier, vitest, cargo, pytest, lint) &mdash; appends a visible warning when exit code contradicts output.</div>
   </div>
 
-  <div class="risk-card risk-high">
-    <div class="severity sev-high">HIGH RISK</div>
+  <div class="risk-card risk-fixed">
+    <div class="severity sev-fixed">HIGH RISK <span class="fixed-badge">FIXED v0.22.6</span></div>
     <div class="title">Exit code swallowing breaks CI/CD</div>
     <div class="detail">
-      Several open bugs report RTK returning exit code 0 when the underlying command failed:<br>
-      &bull; <strong>Issue #185</strong>: <code>rtk lint</code> doesn't propagate ESLint non-zero exit code<br>
-      &bull; <strong>Issue #162</strong>: <code>rtk grep</code> always returns 0 (rg returns 1 for no match, 2 for errors)<br>
+      Several modules returned exit code 0 when the underlying command failed:<br>
+      &bull; <strong>Issue #185</strong>: <code>rtk lint</code> didn't propagate ESLint non-zero exit code &mdash; <span class="fixed-badge">FIXED v0.22.5</span><br>
+      &bull; <strong>Issue #162</strong>: <code>rtk grep</code> always returned 0 (rg returns 1 for no match, 2 for errors) &mdash; <span class="fixed-badge">FIXED v0.22.6</span><br>
       &bull; <strong>Issue #221</strong>: <code>rtk prettier --check</code> showed success message with exit code 1 &mdash; <span class="fixed-badge">FIXED v0.22.5</span><br>
-      This can cause CI pipelines to pass when they should fail.
+      &bull; <code>rtk err</code> / <code>rtk test</code> (runner.rs): calculated exit code but returned 0 &mdash; <span class="fixed-badge">FIXED v0.22.6</span><br>
+      &bull; <code>rtk prisma</code>: used <code>bail!()</code> instead of <code>process::exit()</code>, losing original exit code &mdash; <span class="fixed-badge">FIXED v0.22.6</span><br>
+      &bull; <code>rtk golangci-lint</code>: deliberately swallowed exit 1 for lint issues &mdash; <span class="fixed-badge">FIXED v0.22.6</span>
     </div>
-    <div class="mitigation"><strong>Mitigation:</strong> Don't use RTK in CI/CD pipelines until exit code parity is verified for your specific commands.</div>
+    <div class="mitigation"><strong>Fixed in v0.22.6:</strong> All command modules now propagate the underlying tool's exit code. The RTK contract &mdash; <code>rtk &lt;cmd&gt;</code> returns the same exit code as <code>&lt;cmd&gt;</code> &mdash; is enforced. Token tracking always runs before <code>process::exit()</code> so savings data is preserved even on failure.</div>
   </div>
 
   <div class="risk-card risk-high">
@@ -159,14 +161,14 @@
     <tr><td>Run commands you didn't ask for</td><td style="color:var(--green)">NO</td><td>Only executes the exact command you pass as arguments.</td></tr>
     <tr><td>Phone home / report usage</td><td style="color:var(--green)">NO</td><td>No network stack in dependency tree. Physically impossible.</td></tr>
     <tr><td>Drop important output</td><td style="color:var(--orange)"><strong>YES</strong></td><td>This is RTK's purpose! Filtering inherently removes information. See risks above.</td></tr>
-    <tr><td>Return incorrect exit codes</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Known bugs where exit codes are swallowed (Issues #162, #185). Issue #221 fixed in v0.22.5.</td></tr>
+    <tr><td>Return incorrect exit codes</td><td style="color:var(--green)">NO</td><td>Fixed in v0.22.5&ndash;v0.22.6: all modules (grep, runner, prisma, golangci-lint, lint, prettier) now propagate the underlying tool's exit code exactly.</td></tr>
     <tr><td>Fail on valid commands</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Clap argument parsing rejects some valid flags (Issues #204, #228, #229).</td></tr>
   </table>
 
   <h2>Recommendations</h2>
   <ol style="padding-left:1.5rem">
     <li><strong>Use <code>rtk proxy &lt;cmd&gt;</code></strong> as escape hatch for any command where you need exact output</li>
-    <li><strong>Don't use RTK in CI/CD</strong> until exit code bugs are resolved for your commands</li>
+    <li><strong>RTK is safe in CI/CD</strong> as of v0.22.6 &mdash; exit code parity is enforced for all command modules</li>
     <li><strong>Verify critical decisions</strong> with raw command output (especially lint/test results)</li>
     <li><strong>Keep RTK updated</strong> &mdash; the project is actively fixing these bugs</li>
     <li><strong>Disable tee</strong> if you work with sensitive data (<code>RTK_TEE=0</code>)</li>
