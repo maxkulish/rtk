@@ -28,6 +28,10 @@
   .risk-card .detail { color:var(--text-muted);font-size:0.9rem; }
   .risk-card .mitigation { margin-top:0.5rem;font-size:0.9rem; }
   .risk-card .mitigation strong { color:var(--green); }
+  .risk-fixed { border-color:var(--green);opacity:0.75; }
+  .sev-fixed { color:var(--green); }
+  .risk-fixed .title { text-decoration:line-through;color:var(--text-muted); }
+  .fixed-badge { display:inline-block;background:rgba(63,185,80,0.15);color:var(--green);border:1px solid var(--green);border-radius:4px;font-size:0.75rem;font-weight:600;padding:1px 7px;margin-left:0.5rem;text-decoration:none;vertical-align:middle; }
   table { width:100%;border-collapse:collapse;margin:1rem 0; }
   th,td { padding:0.5rem 0.8rem;text-align:left;border-bottom:1px solid var(--border);font-size:0.9rem; }
   th { color:var(--text-muted);font-size:0.8rem;text-transform:uppercase; }
@@ -43,13 +47,13 @@
   <h2>Critical Risk: Information Loss from Filtering</h2>
   <p>RTK's core purpose is to <strong>remove information</strong> from command output to save LLM tokens. This is inherently a trade-off: you lose context to gain efficiency. Here are the specific risks:</p>
 
-  <div class="risk-card risk-high">
-    <div class="severity sev-high">HIGH RISK</div>
+  <div class="risk-card risk-fixed">
+    <div class="severity sev-fixed">HIGH RISK <span class="fixed-badge">FIXED v0.22.5</span></div>
     <div class="title">Test output truncation hides failures</div>
     <div class="detail">
-      <code>rtk cargo test</code> and <code>rtk vitest</code> show only failing tests. If the filter has a bug, it may misclassify a failure as a pass, hiding real test failures from the LLM. <strong>Issue #221</strong>: <code>rtk prettier --check</code> incorrectly reports "All files formatted correctly" when files actually need formatting.
+      <code>rtk cargo test</code> and <code>rtk vitest</code> show only failing tests. If the filter has a bug, it may misclassify a failure as a pass, hiding real test failures from the LLM. <strong>Issue #221</strong>: <code>rtk prettier --check</code> incorrectly reported "All files formatted correctly" when files actually needed formatting &mdash; caused by <code>[warn]</code>/<code>[error]</code> lines being stripped and empty file list claiming success unconditionally.
     </div>
-    <div class="mitigation"><strong>Mitigation:</strong> Always verify with raw command when CI results seem suspicious. Use <code>rtk proxy &lt;cmd&gt;</code> for unfiltered output.</div>
+    <div class="mitigation"><strong>Fixed in v0.22.5:</strong> Rewrote <code>filter_prettier_output()</code> to parse <code>[warn]</code>/<code>[error]</code> prefixes directly; removed hardcoded extension list; success now requires explicit "All matched files use Prettier" confirmation. Added <code>ensure_failure_visibility()</code> guard to all high-risk filters (prettier, vitest, cargo, pytest, lint) &mdash; appends a visible warning when exit code contradicts output.</div>
   </div>
 
   <div class="risk-card risk-high">
@@ -59,7 +63,7 @@
       Several open bugs report RTK returning exit code 0 when the underlying command failed:<br>
       &bull; <strong>Issue #185</strong>: <code>rtk lint</code> doesn't propagate ESLint non-zero exit code<br>
       &bull; <strong>Issue #162</strong>: <code>rtk grep</code> always returns 0 (rg returns 1 for no match, 2 for errors)<br>
-      &bull; <strong>Issue #221</strong>: <code>rtk prettier --check</code> shows success message with exit code 1<br>
+      &bull; <strong>Issue #221</strong>: <code>rtk prettier --check</code> showed success message with exit code 1 &mdash; <span class="fixed-badge">FIXED v0.22.5</span><br>
       This can cause CI pipelines to pass when they should fail.
     </div>
     <div class="mitigation"><strong>Mitigation:</strong> Don't use RTK in CI/CD pipelines until exit code parity is verified for your specific commands.</div>
@@ -155,7 +159,7 @@
     <tr><td>Run commands you didn't ask for</td><td style="color:var(--green)">NO</td><td>Only executes the exact command you pass as arguments.</td></tr>
     <tr><td>Phone home / report usage</td><td style="color:var(--green)">NO</td><td>No network stack in dependency tree. Physically impossible.</td></tr>
     <tr><td>Drop important output</td><td style="color:var(--orange)"><strong>YES</strong></td><td>This is RTK's purpose! Filtering inherently removes information. See risks above.</td></tr>
-    <tr><td>Return incorrect exit codes</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Known bugs where exit codes are swallowed (Issues #162, #185, #221).</td></tr>
+    <tr><td>Return incorrect exit codes</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Known bugs where exit codes are swallowed (Issues #162, #185). Issue #221 fixed in v0.22.5.</td></tr>
     <tr><td>Fail on valid commands</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Clap argument parsing rejects some valid flags (Issues #204, #228, #229).</td></tr>
   </table>
 
