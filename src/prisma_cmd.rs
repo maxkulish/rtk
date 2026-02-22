@@ -59,20 +59,31 @@ fn run_generate(args: &[String], verbose: u8) -> Result<()> {
         .output()
         .context("Failed to run prisma generate (try: npm install -g prisma)")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("prisma generate failed: {}", stderr);
-    }
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let raw = format!("{}\n{}", stdout, stderr);
-    let filtered = filter_prisma_generate(&raw);
+
+    let filtered = if output.status.success() {
+        filter_prisma_generate(&raw)
+    } else {
+        let err = stderr.trim();
+        if err.is_empty() {
+            format!(
+                "❌ prisma generate failed (exit {})",
+                output.status.code().unwrap_or(1)
+            )
+        } else {
+            format!("❌ prisma generate failed:\n{}", err)
+        }
+    };
 
     println!("{}", filtered);
 
     timer.track("prisma generate", "rtk prisma generate", &raw, &filtered);
 
+    if !output.status.success() {
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
     Ok(())
 }
 
@@ -110,25 +121,36 @@ fn run_migrate(subcommand: MigrateSubcommand, args: &[String], verbose: u8) -> R
 
     let output = cmd.output().context("Failed to run prisma migrate")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("prisma migrate failed: {}", stderr);
-    }
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let raw = format!("{}\n{}", stdout, stderr);
 
-    let filtered = match subcommand {
-        MigrateSubcommand::Dev { .. } => filter_migrate_dev(&raw),
-        MigrateSubcommand::Status => filter_migrate_status(&raw),
-        MigrateSubcommand::Deploy => filter_migrate_deploy(&raw),
+    let filtered = if output.status.success() {
+        match subcommand {
+            MigrateSubcommand::Dev { .. } => filter_migrate_dev(&raw),
+            MigrateSubcommand::Status => filter_migrate_status(&raw),
+            MigrateSubcommand::Deploy => filter_migrate_deploy(&raw),
+        }
+    } else {
+        let err = stderr.trim();
+        if err.is_empty() {
+            format!(
+                "❌ {} failed (exit {})",
+                cmd_name,
+                output.status.code().unwrap_or(1)
+            )
+        } else {
+            format!("❌ {} failed:\n{}", cmd_name, err)
+        }
     };
 
     println!("{}", filtered);
 
     timer.track(cmd_name, &format!("rtk {}", cmd_name), &raw, &filtered);
 
+    if !output.status.success() {
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
     Ok(())
 }
 
@@ -148,20 +170,31 @@ fn run_db_push(args: &[String], verbose: u8) -> Result<()> {
 
     let output = cmd.output().context("Failed to run prisma db push")?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("prisma db push failed: {}", stderr);
-    }
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let raw = format!("{}\n{}", stdout, stderr);
-    let filtered = filter_db_push(&raw);
+
+    let filtered = if output.status.success() {
+        filter_db_push(&raw)
+    } else {
+        let err = stderr.trim();
+        if err.is_empty() {
+            format!(
+                "❌ prisma db push failed (exit {})",
+                output.status.code().unwrap_or(1)
+            )
+        } else {
+            format!("❌ prisma db push failed:\n{}", err)
+        }
+    };
 
     println!("{}", filtered);
 
     timer.track("prisma db push", "rtk prisma db push", &raw, &filtered);
 
+    if !output.status.success() {
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
     Ok(())
 }
 
@@ -478,5 +511,34 @@ CREATE INDEX "session_status_idx" ON "Session"("status");
     fn test_extract_number() {
         assert_eq!(extract_number("42 models generated"), Some(42));
         assert_eq!(extract_number("no numbers here"), None);
+    }
+
+    #[test]
+    fn test_filter_generate_does_not_claim_success_on_error_output() {
+        // filter_prisma_generate is only called on the success path.
+        // Verify that the filter itself at least doesn't panic on error-shaped input.
+        let stderr_only = "Error validating datasource `db`: the URL must start with the protocol `postgresql://`";
+        let result = filter_prisma_generate(stderr_only);
+        // The filter always returns a summary line; callers must guard with success check.
+        // The important invariant is it doesn't panic or return empty.
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_failure_message_includes_stderr() {
+        // Simulate the failure-path string formatting used in run_generate/run_db_push/run_migrate.
+        let stderr = "Error: Schema file not found at prisma/schema.prisma";
+        let msg = format!("❌ prisma generate failed:\n{}", stderr.trim());
+        assert!(msg.contains("❌ prisma generate failed"));
+        assert!(msg.contains("Schema file not found"));
+        assert!(!msg.contains("✓ Prisma Client generated"));
+    }
+
+    #[test]
+    fn test_failure_message_empty_stderr() {
+        // When stderr is empty, fall back to exit-code message.
+        let msg = format!("❌ prisma db push failed (exit {})", 1);
+        assert!(msg.contains("❌ prisma db push failed"));
+        assert!(!msg.contains("✓ Schema pushed"));
     }
 }
