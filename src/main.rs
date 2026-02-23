@@ -1575,13 +1575,20 @@ fn should_fallback(err: &clap::Error, raw_args: &[OsString]) -> bool {
     )
 }
 
+fn is_rtk_short_cluster(s: &str) -> bool {
+    if !s.starts_with('-') || s.starts_with("--") || s.len() < 2 {
+        return false;
+    }
+    // Every char after '-' must be a known RTK short flag: v or u
+    s[1..].chars().all(|c| c == 'v' || c == 'u')
+}
+
 fn strip_rtk_flags(args: &[OsString]) -> &[OsString] {
-    let rtk_flags: &[&str] = &["-u", "--verbose", "--ultra-compact", "--skip-env"];
+    let rtk_long_flags: &[&str] = &["--verbose", "--ultra-compact", "--skip-env"];
     let mut start = 0;
     for arg in args {
         let s = arg.to_string_lossy();
-        let is_rtk_flag = rtk_flags.contains(&s.as_ref())
-            || (s.starts_with("-v") && s.len() >= 2 && s.chars().skip(1).all(|c| c == 'v'));
+        let is_rtk_flag = rtk_long_flags.contains(&s.as_ref()) || is_rtk_short_cluster(&s);
         if is_rtk_flag {
             start += 1;
         } else {
@@ -1917,16 +1924,19 @@ mod tests {
         assert!(!should_fallback(&err, &raw));
     }
 
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_no_fallback_when_env_set() {
+        let _lock = ENV_MUTEX.lock().unwrap();
         let raw: Vec<OsString> = ["rtk", "make", "build"]
             .iter()
             .map(OsString::from)
             .collect();
         let err = expect_parse_err(&["rtk", "make", "build"]);
-        std::env::set_var("RTK_NO_FALLBACK", "1");
+        unsafe { std::env::set_var("RTK_NO_FALLBACK", "1") };
         let result = should_fallback(&err, &raw);
-        std::env::remove_var("RTK_NO_FALLBACK");
+        unsafe { std::env::remove_var("RTK_NO_FALLBACK") };
         assert!(!result);
     }
 
@@ -1958,5 +1968,28 @@ mod tests {
         let stripped = strip_rtk_flags(&args);
         let expected: Vec<OsString> = ["cmd"].iter().map(OsString::from).collect();
         assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_combined_uv() {
+        let args: Vec<OsString> = ["-uv", "echo", "hi"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        let expected: Vec<OsString> = ["echo", "hi"].iter().map(OsString::from).collect();
+        assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_combined_vu() {
+        let args: Vec<OsString> = ["-vu", "echo", "hi"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        let expected: Vec<OsString> = ["echo", "hi"].iter().map(OsString::from).collect();
+        assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_unknown_short_not_stripped() {
+        let args: Vec<OsString> = ["-x", "cmd"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        assert_eq!(stripped, &args[..]);
     }
 }
