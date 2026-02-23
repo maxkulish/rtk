@@ -3,6 +3,47 @@ use anyhow::{Context, Result};
 use std::ffi::OsString;
 use std::process::Command;
 
+#[derive(Debug, Clone, Default)]
+pub struct GitGlobalOpts {
+    pub no_pager: bool,
+    pub no_optional_locks: bool,
+    pub bare: bool,
+    pub literal_pathspecs: bool,
+    pub dir: Vec<String>,
+    pub config: Vec<String>,
+    pub git_dir: Option<String>,
+    pub work_tree: Option<String>,
+}
+
+fn git_cmd(opts: &GitGlobalOpts) -> Command {
+    let mut cmd = Command::new("git");
+    if opts.no_pager {
+        cmd.arg("--no-pager");
+    }
+    if opts.no_optional_locks {
+        cmd.arg("--no-optional-locks");
+    }
+    if opts.bare {
+        cmd.arg("--bare");
+    }
+    if opts.literal_pathspecs {
+        cmd.arg("--literal-pathspecs");
+    }
+    for dir in &opts.dir {
+        cmd.args(["-C", dir]);
+    }
+    for cfg in &opts.config {
+        cmd.args(["-c", cfg]);
+    }
+    if let Some(ref git_dir) = opts.git_dir {
+        cmd.args(["--git-dir", git_dir]);
+    }
+    if let Some(ref work_tree) = opts.work_tree {
+        cmd.args(["--work-tree", work_tree]);
+    }
+    cmd
+}
+
 #[derive(Debug, Clone)]
 pub enum GitCommand {
     Diff,
@@ -19,24 +60,35 @@ pub enum GitCommand {
     Worktree,
 }
 
-pub fn run(cmd: GitCommand, args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()> {
+pub fn run(
+    cmd: GitCommand,
+    args: &[String],
+    max_lines: Option<usize>,
+    verbose: u8,
+    opts: &GitGlobalOpts,
+) -> Result<()> {
     match cmd {
-        GitCommand::Diff => run_diff(args, max_lines, verbose),
-        GitCommand::Log => run_log(args, max_lines, verbose),
-        GitCommand::Status => run_status(args, verbose),
-        GitCommand::Show => run_show(args, max_lines, verbose),
-        GitCommand::Add => run_add(args, verbose),
-        GitCommand::Commit { messages } => run_commit(&messages, verbose),
-        GitCommand::Push => run_push(args, verbose),
-        GitCommand::Pull => run_pull(args, verbose),
-        GitCommand::Branch => run_branch(args, verbose),
-        GitCommand::Fetch => run_fetch(args, verbose),
-        GitCommand::Stash { subcommand } => run_stash(subcommand.as_deref(), args, verbose),
-        GitCommand::Worktree => run_worktree(args, verbose),
+        GitCommand::Diff => run_diff(args, max_lines, verbose, opts),
+        GitCommand::Log => run_log(args, max_lines, verbose, opts),
+        GitCommand::Status => run_status(args, verbose, opts),
+        GitCommand::Show => run_show(args, max_lines, verbose, opts),
+        GitCommand::Add => run_add(args, verbose, opts),
+        GitCommand::Commit { messages } => run_commit(&messages, verbose, opts),
+        GitCommand::Push => run_push(args, verbose, opts),
+        GitCommand::Pull => run_pull(args, verbose, opts),
+        GitCommand::Branch => run_branch(args, verbose, opts),
+        GitCommand::Fetch => run_fetch(args, verbose, opts),
+        GitCommand::Stash { subcommand } => run_stash(subcommand.as_deref(), args, verbose, opts),
+        GitCommand::Worktree => run_worktree(args, verbose, opts),
     }
 }
 
-fn run_diff(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()> {
+fn run_diff(
+    args: &[String],
+    max_lines: Option<usize>,
+    verbose: u8,
+    opts: &GitGlobalOpts,
+) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     // Check if user wants stat output
@@ -49,7 +101,7 @@ fn run_diff(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
 
     if wants_stat || !wants_compact {
         // User wants stat or explicitly no compacting - pass through directly
-        let mut cmd = Command::new("git");
+        let mut cmd = git_cmd(opts);
         cmd.arg("diff");
         for arg in args {
             cmd.arg(arg);
@@ -77,7 +129,7 @@ fn run_diff(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
     }
 
     // Default RTK behavior: stat first, then compacted diff
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("diff").arg("--stat");
 
     for arg in args {
@@ -95,7 +147,7 @@ fn run_diff(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
     println!("{}", stat_stdout.trim());
 
     // Now get actual diff but compact it
-    let mut diff_cmd = Command::new("git");
+    let mut diff_cmd = git_cmd(opts);
     diff_cmd.arg("diff");
     for arg in args {
         diff_cmd.arg(arg);
@@ -123,7 +175,12 @@ fn run_diff(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
     Ok(())
 }
 
-fn run_show(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()> {
+fn run_show(
+    args: &[String],
+    max_lines: Option<usize>,
+    verbose: u8,
+    opts: &GitGlobalOpts,
+) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     // If user wants --stat or --format only, pass through
@@ -136,7 +193,7 @@ fn run_show(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
         .any(|arg| arg.starts_with("--pretty") || arg.starts_with("--format"));
 
     if wants_stat_only || wants_format {
-        let mut cmd = Command::new("git");
+        let mut cmd = git_cmd(opts);
         cmd.arg("show");
         for arg in args {
             cmd.arg(arg);
@@ -161,7 +218,7 @@ fn run_show(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
     }
 
     // Get raw output for tracking
-    let mut raw_cmd = Command::new("git");
+    let mut raw_cmd = git_cmd(opts);
     raw_cmd.arg("show");
     for arg in args {
         raw_cmd.arg(arg);
@@ -172,7 +229,7 @@ fn run_show(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
         .unwrap_or_default();
 
     // Step 1: one-line commit summary
-    let mut summary_cmd = Command::new("git");
+    let mut summary_cmd = git_cmd(opts);
     summary_cmd.args(["show", "--no-patch", "--pretty=format:%h %s (%ar) <%an>"]);
     for arg in args {
         summary_cmd.arg(arg);
@@ -187,7 +244,7 @@ fn run_show(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
     println!("{}", summary.trim());
 
     // Step 2: --stat summary
-    let mut stat_cmd = Command::new("git");
+    let mut stat_cmd = git_cmd(opts);
     stat_cmd.args(["show", "--stat", "--pretty=format:"]);
     for arg in args {
         stat_cmd.arg(arg);
@@ -200,7 +257,7 @@ fn run_show(args: &[String], max_lines: Option<usize>, verbose: u8) -> Result<()
     }
 
     // Step 3: compacted diff
-    let mut diff_cmd = Command::new("git");
+    let mut diff_cmd = git_cmd(opts);
     diff_cmd.args(["show", "--pretty=format:"]);
     for arg in args {
         diff_cmd.arg(arg);
@@ -295,10 +352,15 @@ pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
     result.join("\n")
 }
 
-fn run_log(args: &[String], _max_lines: Option<usize>, verbose: u8) -> Result<()> {
+fn run_log(
+    args: &[String],
+    _max_lines: Option<usize>,
+    verbose: u8,
+    opts: &GitGlobalOpts,
+) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("log");
 
     // Check if user provided format flags
@@ -523,12 +585,12 @@ fn filter_status_with_args(output: &str) -> String {
     }
 }
 
-fn run_status(args: &[String], verbose: u8) -> Result<()> {
+fn run_status(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     // If user provided flags, apply minimal filtering
     if !args.is_empty() {
-        let output = Command::new("git")
+        let output = git_cmd(opts)
             .arg("status")
             .args(args)
             .output()
@@ -557,13 +619,13 @@ fn run_status(args: &[String], verbose: u8) -> Result<()> {
 
     // Default RTK compact mode (no args provided)
     // Get raw git status for tracking
-    let raw_output = Command::new("git")
+    let raw_output = git_cmd(opts)
         .args(["status"])
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
         .unwrap_or_default();
 
-    let output = Command::new("git")
+    let output = git_cmd(opts)
         .args(["status", "--porcelain", "-b"])
         .output()
         .context("Failed to run git status")?;
@@ -585,10 +647,10 @@ fn run_status(args: &[String], verbose: u8) -> Result<()> {
     Ok(())
 }
 
-fn run_add(args: &[String], verbose: u8) -> Result<()> {
+fn run_add(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("add");
 
     // Pass all arguments directly to git (flags like -A, -p, --all, etc.)
@@ -614,7 +676,7 @@ fn run_add(args: &[String], verbose: u8) -> Result<()> {
 
     if output.status.success() {
         // Count what was added
-        let status_output = Command::new("git")
+        let status_output = git_cmd(opts)
             .args(["diff", "--cached", "--stat", "--shortstat"])
             .output()
             .context("Failed to check staged files")?;
@@ -657,8 +719,8 @@ fn run_add(args: &[String], verbose: u8) -> Result<()> {
     Ok(())
 }
 
-fn build_commit_command(messages: &[String]) -> Command {
-    let mut cmd = Command::new("git");
+fn build_commit_command(messages: &[String], opts: &GitGlobalOpts) -> Command {
+    let mut cmd = git_cmd(opts);
     cmd.arg("commit");
     for msg in messages {
         cmd.args(["-m", msg]);
@@ -666,7 +728,7 @@ fn build_commit_command(messages: &[String]) -> Command {
     cmd
 }
 
-fn run_commit(messages: &[String], verbose: u8) -> Result<()> {
+fn run_commit(messages: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     let original_cmd = messages
@@ -680,7 +742,7 @@ fn run_commit(messages: &[String], verbose: u8) -> Result<()> {
         eprintln!("{}", original_cmd);
     }
 
-    let output = build_commit_command(messages)
+    let output = build_commit_command(messages, opts)
         .output()
         .context("Failed to run git commit")?;
 
@@ -729,14 +791,14 @@ fn run_commit(messages: &[String], verbose: u8) -> Result<()> {
     Ok(())
 }
 
-fn run_push(args: &[String], verbose: u8) -> Result<()> {
+fn run_push(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
         eprintln!("git push");
     }
 
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("push");
     for arg in args {
         cmd.arg(arg);
@@ -790,14 +852,14 @@ fn run_push(args: &[String], verbose: u8) -> Result<()> {
     Ok(())
 }
 
-fn run_pull(args: &[String], verbose: u8) -> Result<()> {
+fn run_pull(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
         eprintln!("git pull");
     }
 
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("pull");
     for arg in args {
         cmd.arg(arg);
@@ -875,7 +937,7 @@ fn run_pull(args: &[String], verbose: u8) -> Result<()> {
     Ok(())
 }
 
-fn run_branch(args: &[String], verbose: u8) -> Result<()> {
+fn run_branch(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
@@ -905,7 +967,7 @@ fn run_branch(args: &[String], verbose: u8) -> Result<()> {
 
     // Write operation: action flags, or positional args without list flags (= branch creation)
     if has_action_flag || (has_positional_arg && !has_list_flag) {
-        let mut cmd = Command::new("git");
+        let mut cmd = git_cmd(opts);
         cmd.arg("branch");
         for arg in args {
             cmd.arg(arg);
@@ -944,7 +1006,7 @@ fn run_branch(args: &[String], verbose: u8) -> Result<()> {
     }
 
     // List mode: show compact branch list
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("branch");
     if !has_list_flag {
         cmd.arg("-a");
@@ -1025,14 +1087,14 @@ fn filter_branch_output(output: &str) -> String {
     result.join("\n")
 }
 
-fn run_fetch(args: &[String], verbose: u8) -> Result<()> {
+fn run_fetch(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
         eprintln!("git fetch");
     }
 
-    let mut cmd = Command::new("git");
+    let mut cmd = git_cmd(opts);
     cmd.arg("fetch");
     for arg in args {
         cmd.arg(arg);
@@ -1069,7 +1131,12 @@ fn run_fetch(args: &[String], verbose: u8) -> Result<()> {
     Ok(())
 }
 
-fn run_stash(subcommand: Option<&str>, args: &[String], verbose: u8) -> Result<()> {
+fn run_stash(
+    subcommand: Option<&str>,
+    args: &[String],
+    verbose: u8,
+    opts: &GitGlobalOpts,
+) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
@@ -1078,7 +1145,7 @@ fn run_stash(subcommand: Option<&str>, args: &[String], verbose: u8) -> Result<(
 
     match subcommand {
         Some("list") => {
-            let output = Command::new("git")
+            let output = git_cmd(opts)
                 .args(["stash", "list"])
                 .output()
                 .context("Failed to run git stash list")?;
@@ -1097,7 +1164,7 @@ fn run_stash(subcommand: Option<&str>, args: &[String], verbose: u8) -> Result<(
             timer.track("git stash list", "rtk git stash list", &raw, &filtered);
         }
         Some("show") => {
-            let mut cmd = Command::new("git");
+            let mut cmd = git_cmd(opts);
             cmd.args(["stash", "show", "-p"]);
             for arg in args {
                 cmd.arg(arg);
@@ -1120,7 +1187,7 @@ fn run_stash(subcommand: Option<&str>, args: &[String], verbose: u8) -> Result<(
         }
         Some("pop") | Some("apply") | Some("drop") | Some("push") => {
             let sub = subcommand.unwrap();
-            let mut cmd = Command::new("git");
+            let mut cmd = git_cmd(opts);
             cmd.args(["stash", sub]);
             for arg in args {
                 cmd.arg(arg);
@@ -1151,7 +1218,7 @@ fn run_stash(subcommand: Option<&str>, args: &[String], verbose: u8) -> Result<(
         }
         _ => {
             // Default: git stash (push)
-            let mut cmd = Command::new("git");
+            let mut cmd = git_cmd(opts);
             cmd.arg("stash");
             for arg in args {
                 cmd.arg(arg);
@@ -1207,7 +1274,7 @@ fn filter_stash_list(output: &str) -> String {
     result.join("\n")
 }
 
-fn run_worktree(args: &[String], verbose: u8) -> Result<()> {
+fn run_worktree(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
@@ -1220,7 +1287,7 @@ fn run_worktree(args: &[String], verbose: u8) -> Result<()> {
     });
 
     if has_action {
-        let mut cmd = Command::new("git");
+        let mut cmd = git_cmd(opts);
         cmd.arg("worktree");
         for arg in args {
             cmd.arg(arg);
@@ -1255,7 +1322,7 @@ fn run_worktree(args: &[String], verbose: u8) -> Result<()> {
     }
 
     // Default: list mode
-    let output = Command::new("git")
+    let output = git_cmd(opts)
         .args(["worktree", "list"])
         .output()
         .context("Failed to run git worktree list")?;
@@ -1298,13 +1365,13 @@ fn filter_worktree_list(output: &str) -> String {
 }
 
 /// Runs an unsupported git subcommand by passing it through directly
-pub fn run_passthrough(args: &[OsString], verbose: u8) -> Result<()> {
+pub fn run_passthrough(args: &[OsString], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
         eprintln!("git passthrough: {:?}", args);
     }
-    let status = Command::new("git")
+    let status = git_cmd(opts)
         .args(args)
         .status()
         .context("Failed to run git")?;
@@ -1560,7 +1627,8 @@ no changes added to commit (use "git add" and/or "git commit -a")
     fn test_branch_creation_not_swallowed() {
         let branch = "test-rtk-create-branch-regression";
         // Create branch via run_branch
-        run_branch(&[branch.to_string()], 0).expect("run_branch should succeed");
+        run_branch(&[branch.to_string()], 0, &GitGlobalOpts::default())
+            .expect("run_branch should succeed");
         // Verify it exists
         let output = Command::new("git")
             .args(["branch", "--list", branch])
@@ -1581,8 +1649,12 @@ no changes added to commit (use "git add" and/or "git commit -a")
     #[ignore] // Integration test: requires git repo
     fn test_branch_creation_from_commit() {
         let branch = "test-rtk-create-from-commit";
-        run_branch(&[branch.to_string(), "HEAD".to_string()], 0)
-            .expect("run_branch with start-point should succeed");
+        run_branch(
+            &[branch.to_string(), "HEAD".to_string()],
+            0,
+            &GitGlobalOpts::default(),
+        )
+        .expect("run_branch with start-point should succeed");
         let output = Command::new("git")
             .args(["branch", "--list", branch])
             .output()
@@ -1599,7 +1671,7 @@ no changes added to commit (use "git add" and/or "git commit -a")
     #[test]
     fn test_commit_single_message() {
         let messages = vec!["fix: typo".to_string()];
-        let cmd = build_commit_command(&messages);
+        let cmd = build_commit_command(&messages, &GitGlobalOpts::default());
         let args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
@@ -1613,7 +1685,7 @@ no changes added to commit (use "git add" and/or "git commit -a")
             "feat: add multi-paragraph support".to_string(),
             "This allows git commit -m \"title\" -m \"body\".".to_string(),
         ];
-        let cmd = build_commit_command(&messages);
+        let cmd = build_commit_command(&messages, &GitGlobalOpts::default());
         let args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
@@ -1637,7 +1709,7 @@ no changes added to commit (use "git add" and/or "git commit -a")
             "body".to_string(),
             "footer: refs #202".to_string(),
         ];
-        let cmd = build_commit_command(&messages);
+        let cmd = build_commit_command(&messages, &GitGlobalOpts::default());
         let args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
@@ -1654,5 +1726,102 @@ no changes added to commit (use "git add" and/or "git commit -a")
                 "footer: refs #202"
             ]
         );
+    }
+
+    #[test]
+    fn test_git_cmd_default_opts() {
+        let opts = GitGlobalOpts::default();
+        let cmd = git_cmd(&opts);
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert!(args.is_empty());
+    }
+
+    #[test]
+    fn test_git_cmd_no_pager() {
+        let opts = GitGlobalOpts {
+            no_pager: true,
+            ..Default::default()
+        };
+        let cmd = git_cmd(&opts);
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["--no-pager"]);
+    }
+
+    #[test]
+    fn test_git_cmd_single_dir() {
+        let opts = GitGlobalOpts {
+            dir: vec!["/tmp".to_string()],
+            ..Default::default()
+        };
+        let cmd = git_cmd(&opts);
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["-C", "/tmp"]);
+    }
+
+    #[test]
+    fn test_git_cmd_multi_dir() {
+        let opts = GitGlobalOpts {
+            dir: vec!["/a".to_string(), "/b".to_string()],
+            ..Default::default()
+        };
+        let cmd = git_cmd(&opts);
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["-C", "/a", "-C", "/b"]);
+    }
+
+    #[test]
+    fn test_git_cmd_config() {
+        let opts = GitGlobalOpts {
+            config: vec!["user.name=Test".to_string()],
+            ..Default::default()
+        };
+        let cmd = git_cmd(&opts);
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(args, vec!["-c", "user.name=Test"]);
+    }
+
+    #[test]
+    fn test_git_cmd_all_opts() {
+        let opts = GitGlobalOpts {
+            no_pager: true,
+            no_optional_locks: true,
+            bare: true,
+            literal_pathspecs: true,
+            dir: vec!["/repo".to_string()],
+            config: vec!["core.autocrlf=false".to_string()],
+            git_dir: Some("/repo/.git".to_string()),
+            work_tree: Some("/repo".to_string()),
+        };
+        let cmd = git_cmd(&opts);
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert!(args.contains(&"--no-pager".to_string()));
+        assert!(args.contains(&"--no-optional-locks".to_string()));
+        assert!(args.contains(&"--bare".to_string()));
+        assert!(args.contains(&"--literal-pathspecs".to_string()));
+        assert!(args.contains(&"-C".to_string()));
+        assert!(args.contains(&"/repo".to_string()));
+        assert!(args.contains(&"-c".to_string()));
+        assert!(args.contains(&"core.autocrlf=false".to_string()));
+        assert!(args.contains(&"--git-dir".to_string()));
+        assert!(args.contains(&"/repo/.git".to_string()));
+        assert!(args.contains(&"--work-tree".to_string()));
     }
 }

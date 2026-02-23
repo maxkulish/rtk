@@ -122,6 +122,30 @@ enum Commands {
 
     /// Git commands with compact output
     Git {
+        /// Suppress pager output
+        #[arg(long)]
+        no_pager: bool,
+        /// Do not perform optional operations that require locks
+        #[arg(long)]
+        no_optional_locks: bool,
+        /// Treat the repository as a bare repository
+        #[arg(long)]
+        bare: bool,
+        /// Treat pathspecs as literal (no globbing)
+        #[arg(long)]
+        literal_pathspecs: bool,
+        /// Run as if started in <path>
+        #[arg(short = 'C', value_name = "PATH")]
+        dir: Vec<String>,
+        /// Pass a configuration parameter (key=value)
+        #[arg(short = 'c', value_name = "KEY=VALUE")]
+        config: Vec<String>,
+        /// Set the path to the repository (.git directory)
+        #[arg(long, value_name = "PATH")]
+        git_dir: Option<String>,
+        /// Set the path to the working tree
+        #[arg(long, value_name = "PATH")]
+        work_tree: Option<String>,
         #[command(subcommand)]
         command: GitCommands,
     },
@@ -896,57 +920,81 @@ fn main() -> Result<()> {
             local_llm::run(&file, &model, force_download, cli.verbose)?;
         }
 
-        Commands::Git { command } => match command {
-            GitCommands::Diff { args } => {
-                git::run(git::GitCommand::Diff, &args, None, cli.verbose)?;
+        Commands::Git {
+            no_pager,
+            no_optional_locks,
+            bare,
+            literal_pathspecs,
+            dir,
+            config,
+            git_dir,
+            work_tree,
+            command,
+        } => {
+            let opts = git::GitGlobalOpts {
+                no_pager,
+                no_optional_locks,
+                bare,
+                literal_pathspecs,
+                dir,
+                config,
+                git_dir,
+                work_tree,
+            };
+            match command {
+                GitCommands::Diff { args } => {
+                    git::run(git::GitCommand::Diff, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Log { args } => {
+                    git::run(git::GitCommand::Log, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Status { args } => {
+                    git::run(git::GitCommand::Status, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Show { args } => {
+                    git::run(git::GitCommand::Show, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Add { args } => {
+                    git::run(git::GitCommand::Add, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Commit { message } => {
+                    git::run(
+                        git::GitCommand::Commit { messages: message },
+                        &[],
+                        None,
+                        cli.verbose,
+                        &opts,
+                    )?;
+                }
+                GitCommands::Push { args } => {
+                    git::run(git::GitCommand::Push, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Pull { args } => {
+                    git::run(git::GitCommand::Pull, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Branch { args } => {
+                    git::run(git::GitCommand::Branch, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Fetch { args } => {
+                    git::run(git::GitCommand::Fetch, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Stash { subcommand, args } => {
+                    git::run(
+                        git::GitCommand::Stash { subcommand },
+                        &args,
+                        None,
+                        cli.verbose,
+                        &opts,
+                    )?;
+                }
+                GitCommands::Worktree { args } => {
+                    git::run(git::GitCommand::Worktree, &args, None, cli.verbose, &opts)?;
+                }
+                GitCommands::Other(args) => {
+                    git::run_passthrough(&args, cli.verbose, &opts)?;
+                }
             }
-            GitCommands::Log { args } => {
-                git::run(git::GitCommand::Log, &args, None, cli.verbose)?;
-            }
-            GitCommands::Status { args } => {
-                git::run(git::GitCommand::Status, &args, None, cli.verbose)?;
-            }
-            GitCommands::Show { args } => {
-                git::run(git::GitCommand::Show, &args, None, cli.verbose)?;
-            }
-            GitCommands::Add { args } => {
-                git::run(git::GitCommand::Add, &args, None, cli.verbose)?;
-            }
-            GitCommands::Commit { message } => {
-                git::run(
-                    git::GitCommand::Commit { messages: message },
-                    &[],
-                    None,
-                    cli.verbose,
-                )?;
-            }
-            GitCommands::Push { args } => {
-                git::run(git::GitCommand::Push, &args, None, cli.verbose)?;
-            }
-            GitCommands::Pull { args } => {
-                git::run(git::GitCommand::Pull, &args, None, cli.verbose)?;
-            }
-            GitCommands::Branch { args } => {
-                git::run(git::GitCommand::Branch, &args, None, cli.verbose)?;
-            }
-            GitCommands::Fetch { args } => {
-                git::run(git::GitCommand::Fetch, &args, None, cli.verbose)?;
-            }
-            GitCommands::Stash { subcommand, args } => {
-                git::run(
-                    git::GitCommand::Stash { subcommand },
-                    &args,
-                    None,
-                    cli.verbose,
-                )?;
-            }
-            GitCommands::Worktree { args } => {
-                git::run(git::GitCommand::Worktree, &args, None, cli.verbose)?;
-            }
-            GitCommands::Other(args) => {
-                git::run_passthrough(&args, cli.verbose)?;
-            }
-        },
+        }
 
         Commands::Gh { subcommand, args } => {
             gh_cmd::run(&subcommand, &args, cli.verbose, cli.ultra_compact)?;
@@ -1510,6 +1558,7 @@ mod tests {
         match cli.command {
             Commands::Git {
                 command: GitCommands::Commit { message },
+                ..
             } => {
                 assert_eq!(message, vec!["fix: typo"]);
             }
@@ -1532,6 +1581,7 @@ mod tests {
         match cli.command {
             Commands::Git {
                 command: GitCommands::Commit { message },
+                ..
             } => {
                 assert_eq!(message, vec!["feat: add support", "Body paragraph here."]);
             }
@@ -1556,10 +1606,148 @@ mod tests {
         match cli.command {
             Commands::Git {
                 command: GitCommands::Commit { message },
+                ..
             } => {
                 assert_eq!(message, vec!["title", "body", "footer"]);
             }
             _ => panic!("Expected Git Commit command"),
+        }
+    }
+
+    #[test]
+    fn test_git_no_pager_diff() {
+        let cli = Cli::try_parse_from(["rtk", "git", "--no-pager", "diff"]).unwrap();
+        match cli.command {
+            Commands::Git {
+                no_pager,
+                command: GitCommands::Diff { args },
+                ..
+            } => {
+                assert!(no_pager);
+                assert!(args.is_empty());
+            }
+            _ => panic!("Expected Git Diff command with --no-pager"),
+        }
+    }
+
+    #[test]
+    fn test_git_dir_flag() {
+        let cli = Cli::try_parse_from(["rtk", "git", "-C", "/tmp", "status"]).unwrap();
+        match cli.command {
+            Commands::Git {
+                dir,
+                command: GitCommands::Status { .. },
+                ..
+            } => {
+                assert_eq!(dir, vec!["/tmp"]);
+            }
+            _ => panic!("Expected Git Status command with -C"),
+        }
+    }
+
+    #[test]
+    fn test_git_config_repeatable() {
+        let cli = Cli::try_parse_from([
+            "rtk",
+            "git",
+            "-c",
+            "user.name=A",
+            "-c",
+            "user.email=b@c",
+            "status",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Git {
+                config,
+                command: GitCommands::Status { .. },
+                ..
+            } => {
+                assert_eq!(config, vec!["user.name=A", "user.email=b@c"]);
+            }
+            _ => panic!("Expected Git Status with -c"),
+        }
+    }
+
+    #[test]
+    fn test_git_combined_global_opts() {
+        let cli = Cli::try_parse_from([
+            "rtk",
+            "git",
+            "--no-pager",
+            "-C",
+            "/repo",
+            "--no-optional-locks",
+            "log",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Git {
+                no_pager,
+                no_optional_locks,
+                dir,
+                command: GitCommands::Log { .. },
+                ..
+            } => {
+                assert!(no_pager);
+                assert!(no_optional_locks);
+                assert_eq!(dir, vec!["/repo"]);
+            }
+            _ => panic!("Expected Git Log with combined opts"),
+        }
+    }
+
+    #[test]
+    fn test_git_dir_and_work_tree() {
+        let cli = Cli::try_parse_from([
+            "rtk",
+            "git",
+            "--git-dir",
+            "/repo/.git",
+            "--work-tree",
+            "/repo",
+            "status",
+        ])
+        .unwrap();
+        match cli.command {
+            Commands::Git {
+                git_dir,
+                work_tree,
+                command: GitCommands::Status { .. },
+                ..
+            } => {
+                assert_eq!(git_dir.as_deref(), Some("/repo/.git"));
+                assert_eq!(work_tree.as_deref(), Some("/repo"));
+            }
+            _ => panic!("Expected Git Status with --git-dir and --work-tree"),
+        }
+    }
+
+    #[test]
+    fn test_git_backward_compat_no_global_opts() {
+        let cli = Cli::try_parse_from(["rtk", "git", "status"]).unwrap();
+        match cli.command {
+            Commands::Git {
+                no_pager,
+                no_optional_locks,
+                bare,
+                literal_pathspecs,
+                dir,
+                config,
+                git_dir,
+                work_tree,
+                command: GitCommands::Status { .. },
+            } => {
+                assert!(!no_pager);
+                assert!(!no_optional_locks);
+                assert!(!bare);
+                assert!(!literal_pathspecs);
+                assert!(dir.is_empty());
+                assert!(config.is_empty());
+                assert!(git_dir.is_none());
+                assert!(work_tree.is_none());
+            }
+            _ => panic!("Expected Git Status with default opts"),
         }
     }
 
