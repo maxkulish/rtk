@@ -49,6 +49,7 @@ mod wc_cmd;
 mod wget_cmd;
 
 use anyhow::{Context, Result};
+use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -888,7 +889,17 @@ enum GoCommands {
 }
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let raw_args: Vec<OsString> = std::env::args_os().collect();
+
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            if should_fallback(&e, &raw_args) {
+                return run_fallback(&raw_args[1..]);
+            }
+            e.exit();
+        }
+    };
 
     match cli.command {
         Commands::Ls { args } => {
@@ -1547,6 +1558,76 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn should_fallback(err: &clap::Error, raw_args: &[OsString]) -> bool {
+    if raw_args.len() <= 1 {
+        return false;
+    }
+    if std::env::var_os("RTK_NO_FALLBACK").is_some() {
+        return false;
+    }
+
+    matches!(
+        err.kind(),
+        ErrorKind::InvalidSubcommand
+            | ErrorKind::UnknownArgument
+            | ErrorKind::InvalidValue
+            | ErrorKind::NoEquals
+    )
+}
+
+fn is_rtk_short_cluster(s: &str) -> bool {
+    if !s.starts_with('-') || s.starts_with("--") || s.len() < 2 {
+        return false;
+    }
+    // Every char after '-' must be a known RTK short flag: v or u
+    s[1..].chars().all(|c| c == 'v' || c == 'u')
+}
+
+fn strip_rtk_flags(args: &[OsString]) -> &[OsString] {
+    let rtk_long_flags: &[&str] = &["--verbose", "--ultra-compact", "--skip-env"];
+    let mut start = 0;
+    for arg in args {
+        let s = arg.to_string_lossy();
+        let is_rtk_flag = rtk_long_flags.contains(&s.as_ref()) || is_rtk_short_cluster(&s);
+        if is_rtk_flag {
+            start += 1;
+        } else {
+            break;
+        }
+    }
+    &args[start..]
+}
+
+fn run_fallback(args: &[OsString]) -> Result<()> {
+    let args = strip_rtk_flags(args);
+    if args.is_empty() {
+        anyhow::bail!("No command to execute");
+    }
+
+    let cmd_name = &args[0];
+    let cmd_args = &args[1..];
+    let display = tracking::args_display(args);
+
+    eprintln!("[rtk] fallback: running '{}' directly", display);
+
+    let timer = tracking::TimedExecution::start();
+
+    let status = std::process::Command::new(cmd_name)
+        .args(cmd_args)
+        .stdin(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::inherit())
+        .status()
+        .with_context(|| format!("Failed to execute: {}", cmd_name.to_string_lossy()))?;
+
+    timer.track_passthrough(&display, &format!("rtk {} (fallback)", display));
+
+    if !status.success() {
+        std::process::exit(status.code().unwrap_or(1));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1791,5 +1872,124 @@ mod tests {
             }
             _ => panic!("Expected Kubectl Pods command (backward compat)"),
         }
+    }
+
+    // ── Fallback tests ──────────────────────────────────
+
+    fn expect_parse_err(args: &[&str]) -> clap::Error {
+        match Cli::try_parse_from(args) {
+            Err(e) => e,
+            Ok(_) => panic!("Expected parse error for: {:?}", args),
+        }
+    }
+
+    #[test]
+    fn test_fallback_on_unknown_subcommand() {
+        let raw: Vec<OsString> = ["rtk", "make", "build"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let err = expect_parse_err(&["rtk", "make", "build"]);
+        assert!(should_fallback(&err, &raw));
+    }
+
+    #[test]
+    fn test_fallback_on_unknown_flag() {
+        let raw: Vec<OsString> = ["rtk", "unknowncmd", "-x", "foo"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let err = expect_parse_err(&["rtk", "unknowncmd", "-x", "foo"]);
+        assert!(should_fallback(&err, &raw));
+    }
+
+    #[test]
+    fn test_no_fallback_on_help() {
+        let raw: Vec<OsString> = ["rtk", "--help"].iter().map(OsString::from).collect();
+        let err = expect_parse_err(&["rtk", "--help"]);
+        assert!(!should_fallback(&err, &raw));
+    }
+
+    #[test]
+    fn test_no_fallback_on_version() {
+        let raw: Vec<OsString> = ["rtk", "--version"].iter().map(OsString::from).collect();
+        let err = expect_parse_err(&["rtk", "--version"]);
+        assert!(!should_fallback(&err, &raw));
+    }
+
+    #[test]
+    fn test_no_fallback_on_bare_rtk() {
+        let raw: Vec<OsString> = ["rtk"].iter().map(OsString::from).collect();
+        let err = expect_parse_err(&["rtk"]);
+        assert!(!should_fallback(&err, &raw));
+    }
+
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn test_no_fallback_when_env_set() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+        let raw: Vec<OsString> = ["rtk", "make", "build"]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let err = expect_parse_err(&["rtk", "make", "build"]);
+        unsafe { std::env::set_var("RTK_NO_FALLBACK", "1") };
+        let result = should_fallback(&err, &raw);
+        unsafe { std::env::remove_var("RTK_NO_FALLBACK") };
+        assert!(!result);
+    }
+
+    #[test]
+    fn test_known_commands_still_parse() {
+        assert!(Cli::try_parse_from(["rtk", "git", "status"]).is_ok());
+        assert!(Cli::try_parse_from(["rtk", "ls", "."]).is_ok());
+        assert!(Cli::try_parse_from(["rtk", "cargo", "build"]).is_ok());
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_v() {
+        let args: Vec<OsString> = ["-v", "make", "build"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        let expected: Vec<OsString> = ["make", "build"].iter().map(OsString::from).collect();
+        assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_none() {
+        let args: Vec<OsString> = ["make", "build"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        assert_eq!(stripped, &args[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_multiple() {
+        let args: Vec<OsString> = ["-vv", "-u", "cmd"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        let expected: Vec<OsString> = ["cmd"].iter().map(OsString::from).collect();
+        assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_combined_uv() {
+        let args: Vec<OsString> = ["-uv", "echo", "hi"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        let expected: Vec<OsString> = ["echo", "hi"].iter().map(OsString::from).collect();
+        assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_combined_vu() {
+        let args: Vec<OsString> = ["-vu", "echo", "hi"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        let expected: Vec<OsString> = ["echo", "hi"].iter().map(OsString::from).collect();
+        assert_eq!(stripped, &expected[..]);
+    }
+
+    #[test]
+    fn test_strip_rtk_flags_unknown_short_not_stripped() {
+        let args: Vec<OsString> = ["-x", "cmd"].iter().map(OsString::from).collect();
+        let stripped = strip_rtk_flags(&args);
+        assert_eq!(stripped, &args[..]);
     }
 }

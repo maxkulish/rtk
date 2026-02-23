@@ -71,27 +71,27 @@
     <div class="mitigation"><strong>Fixed in v0.22.6:</strong> All command modules now propagate the underlying tool's exit code. The RTK contract &mdash; <code>rtk &lt;cmd&gt;</code> returns the same exit code as <code>&lt;cmd&gt;</code> &mdash; is enforced. Token tracking always runs before <code>process::exit()</code> so savings data is preserved even on failure.</div>
   </div>
 
-  <div class="risk-card risk-high">
-    <div class="severity sev-high">HIGH RISK</div>
+  <div class="risk-card risk-fixed">
+    <div class="severity sev-fixed">HIGH RISK <span class="fixed-badge">FIXED v0.22.1 / v0.23.0</span></div>
     <div class="title">gh issue/PR body truncation</div>
     <div class="detail">
-      <strong>Issue #188</strong> (now fixed in v0.22.1): <code>rtk gh issue view</code> truncated issue bodies to ~21 lines, making it impossible to read full GitHub issues. <strong>Issue #199</strong>: <code>rtk gh api</code> truncates output, corrupting data used for programmatic updates.
+      <strong>Issue #188</strong>: <code>rtk gh issue view</code> truncated issue bodies to ~21 lines, making it impossible to read full GitHub issues. <strong>Issue #199</strong>: <code>rtk gh api</code> replaced JSON values with type schemas (e.g., <code>"title": string</code> instead of <code>"title": "Fix bug"</code>), destroying data used for programmatic updates. Additionally, <code>run_api()</code> dropped stdout entirely on failure (non-zero exit code), hiding API error details.
     </div>
-    <div class="mitigation"><strong>Mitigation:</strong> Update to v0.22.1 for the gh fix. For <code>gh api</code>, use <code>rtk proxy gh api</code> or raw <code>gh api</code>.</div>
+    <div class="mitigation"><strong>Fixed:</strong> Issue #188 fixed in v0.22.1 &mdash; <code>filter_markdown_body()</code> now preserves full body content. Issue #199 fixed in v0.23.0 &mdash; new <code>filter_json_compact()</code> preserves actual values while truncating long strings (&gt;200 chars) and collapsing large arrays. <code>run_api()</code> rewritten to process stdout on failure, separate stdout/stderr for JSON parsing, increase non-JSON line limit from 20 to 100, and follow the <code>timer.track()</code>-before-<code>process::exit()</code> invariant.</div>
   </div>
 
   <div class="risk-card risk-med">
-    <div class="severity sev-med">MEDIUM RISK</div>
+    <div class="severity sev-med">MEDIUM RISK (partially fixed)</div>
     <div class="title">Argument parsing failures reject valid commands</div>
     <div class="detail">
       RTK uses Clap for argument parsing, which can reject flags the underlying tool accepts:<br>
-      &bull; <strong>Issue #228</strong>: <code>rtk git --no-pager diff</code> fails (git global options before subcommand)<br>
+      &bull; <strong>Issue #228</strong>: <code>rtk git --no-pager diff</code> fails (git global options before subcommand) &mdash; <span class="fixed-badge">FIXED v0.23.1</span><br>
+      &bull; <strong>Issue #163</strong>: <code>rtk git -C &lt;path&gt;</code> rejected &mdash; <span class="fixed-badge">FIXED v0.23.1</span><br>
       &bull; <strong>Issue #204</strong>: <code>rtk find -name "*.py"</code> and <code>rtk grep -n</code> fail<br>
       &bull; <strong>Issue #229</strong>: <code>rtk grep -E 'pattern'</code> fails<br>
-      &bull; <strong>Issue #163</strong>: <code>rtk git -C &lt;path&gt;</code> rejected<br>
       When RTK can't parse arguments, the command doesn't run at all.
     </div>
-    <div class="mitigation"><strong>Mitigation:</strong> Use <code>rtk proxy &lt;full command&gt;</code> as fallback, or run the raw command directly.</div>
+    <div class="mitigation"><strong>Mitigation:</strong> Git global options (<code>--no-pager</code>, <code>-C</code>, <code>-c</code>, <code>--git-dir</code>, <code>--work-tree</code>, <code>--bare</code>, <code>--no-optional-locks</code>, <code>--literal-pathspecs</code>) fixed in v0.23.1 via <code>GitGlobalOpts</code> struct. For remaining issues (#204, #229), use <code>rtk proxy &lt;full command&gt;</code> as fallback, or run the raw command directly.</div>
   </div>
 
   <div class="risk-card risk-med">
@@ -162,7 +162,7 @@
     <tr><td>Phone home / report usage</td><td style="color:var(--green)">NO</td><td>No network stack in dependency tree. Physically impossible.</td></tr>
     <tr><td>Drop important output</td><td style="color:var(--orange)"><strong>YES</strong></td><td>This is RTK's purpose! Filtering inherently removes information. See risks above.</td></tr>
     <tr><td>Return incorrect exit codes</td><td style="color:var(--green)">NO</td><td>Fixed in v0.22.5&ndash;v0.22.6: all modules (grep, runner, prisma, golangci-lint, lint, prettier) now propagate the underlying tool's exit code exactly.</td></tr>
-    <tr><td>Fail on valid commands</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Clap argument parsing rejects some valid flags (Issues #204, #228, #229).</td></tr>
+    <tr><td>Fail on valid commands</td><td style="color:var(--orange)"><strong>YES</strong></td><td>Clap argument parsing rejects some valid flags (Issues #204, #229). Git global options (#228, #163) fixed in v0.23.1.</td></tr>
   </table>
 
   <h2>Recommendations</h2>

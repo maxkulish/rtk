@@ -433,6 +433,24 @@ section "Learn"
 assert_ok      "rtk learn --help"             rtk learn --help
 assert_ok      "rtk learn (no sessions)"      rtk learn --since 0 2>&1 || true
 
+# ── 32. Fallback ──────────────────────────────────────
+
+section "Fallback"
+
+assert_ok       "rtk fallback: echo"      rtk echo hello
+# Check stdout only (not stderr) to verify child output is actually forwarded
+stdout_only=$(rtk echo hello 2>/dev/null)
+if echo "$stdout_only" | grep -q "hello"; then
+    PASS=$((PASS + 1))
+    printf "  ${GREEN}PASS${NC}  %s\n" "rtk fallback: stdout forwarded"
+else
+    FAIL=$((FAIL + 1))
+    FAILURES+=("rtk fallback: stdout forwarded")
+    printf "  ${RED}FAIL${NC}  %s\n" "rtk fallback: stdout forwarded"
+    printf "        expected stdout to contain 'hello', got: %s\n" "$stdout_only"
+fi
+assert_exit_ok  "rtk fallback: true"      rtk true
+
 # ══════════════════════════════════════════════════════
 # Report
 # ══════════════════════════════════════════════════════
