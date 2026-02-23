@@ -433,6 +433,14 @@ section "Learn"
 assert_ok      "rtk learn --help"             rtk learn --help
 assert_ok      "rtk learn (no sessions)"      rtk learn --since 0 2>&1 || true
 
+# ── 32. Fallback ──────────────────────────────────────
+
+section "Fallback"
+
+assert_ok       "rtk fallback: echo"      rtk echo hello
+assert_contains "rtk fallback: output"    "hello"       rtk echo hello
+assert_exit_ok  "rtk fallback: true"      rtk true
+
 # ══════════════════════════════════════════════════════
 # Report
 # ══════════════════════════════════════════════════════
