@@ -1,0 +1,46 @@
+[
+  {
+    "number": 42,
+    "title": "Fix login bug",
+    "state": "open",
+    "url": "https://github.com/org/repo/issues/42",
+    "body": "The login form breaks when the password contains special characters like `<` and `>`.\n\nSteps to reproduce:\n1. Go to /login\n2. Enter password with `<script>` tag\n3. Submit\n\nExpected: Error message\nActual: 500 error",
+    "labels": [{"name": "bug"}, {"name": "priority:high"}, {"name": "area:auth"}],
+    "assignees": [{"login": "alice"}, {"login": "bob"}],
+    "created_at": "2026-01-15T10:30:00Z",
+    "updated_at": "2026-02-20T14:22:00Z"
+  },
+  {
+    "number": 43,
+    "title": "Add dark mode support",
+    "state": "open",
+    "url": "https://github.com/org/repo/issues/43",
+    "body": "It would be great to have a dark mode toggle in the settings page.\n\nDesign mockup attached.",
+    "labels": [{"name": "enhancement"}, {"name": "ui"}],
+    "assignees": [],
+    "created_at": "2026-01-16T08:00:00Z",
+    "updated_at": "2026-01-16T08:00:00Z"
+  },
+  {
+    "number": 44,
+    "title": "Update README with installation instructions",
+    "state": "closed",
+    "url": "https://github.com/org/repo/issues/44",
+    "body": "",
+    "labels": [{"name": "docs"}],
+    "assignees": [{"login": "charlie"}],
+    "created_at": "2026-01-17T12:00:00Z",
+    "updated_at": "2026-02-01T09:15:00Z"
+  },
+  {
+    "number": 45,
+    "title": "Performance regression in dashboard API",
+    "state": "open",
+    "url": "https://github.com/org/repo/issues/45",
+    "body": "After upgrading to v2.3, the /api/dashboard endpoint takes 5 seconds to respond instead of 200ms.\n\nProfiler output shows N+1 query in the user stats aggregation.\n\n```sql\nSELECT * FROM user_stats WHERE user_id = ? -- called 500 times!\n```\n\nThis should be a single batch query:\n\n```sql\nSELECT * FROM user_stats WHERE user_id IN (?, ?, ...)\n```",
+    "labels": [{"name": "bug"}, {"name": "performance"}],
+    "assignees": [{"login": "alice"}],
+    "created_at": "2026-02-10T16:45:00Z",
+    "updated_at": "2026-02-22T11:00:00Z"
+  }
+]

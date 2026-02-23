@@ -1128,37 +1128,43 @@ fn run_api(args: &[String], _verbose: u8) -> Result<()> {
     }
 
     let output = cmd.output().context("Failed to run gh api")?;
-    let raw = String::from_utf8_lossy(&output.stdout).to_string();
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        timer.track("gh api", "rtk gh api", &stderr, &stderr);
-        eprintln!("{}", stderr.trim());
-        std::process::exit(output.status.code().unwrap_or(1));
-    }
+    // Process stdout and stderr SEPARATELY (mixing breaks JSON parsing)
+    let raw_stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let raw_stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    // Try to parse as JSON and filter
-    let filtered = match json_cmd::filter_json_string(&raw, 5) {
-        Ok(schema) => {
-            println!("{}", schema);
-            schema
-        }
+    // Apply compact filter to stdout only
+    let filtered_stdout = match json_cmd::filter_json_compact(&raw_stdout, 5) {
+        Ok(compacted) => compacted,
         Err(_) => {
-            // Not JSON, print truncated raw output
-            let mut result = String::new();
-            let lines: Vec<&str> = raw.lines().take(20).collect();
-            let joined = lines.join("\n");
-            result.push_str(&joined);
-            print!("{}", joined);
-            if raw.lines().count() > 20 {
+            // Not JSON, show truncated raw stdout (100 lines)
+            let lines: Vec<&str> = raw_stdout.lines().take(100).collect();
+            let mut result = lines.join("\n");
+            if raw_stdout.lines().count() > 100 {
                 result.push_str("\n... (truncated)");
-                println!("\n... (truncated)");
             }
             result
         }
     };
 
-    timer.track("gh api", "rtk gh api", &raw, &filtered);
+    // 1. Print to user
+    if !filtered_stdout.is_empty() {
+        println!("{}", filtered_stdout);
+    }
+    if !raw_stderr.trim().is_empty() {
+        eprintln!("{}", raw_stderr.trim());
+    }
+
+    // 2. Track BEFORE exit (Risk 2 invariant)
+    let raw_combined = format!("{}\n{}", raw_stdout, raw_stderr);
+    let rtk_combined = format!("{}\n{}", filtered_stdout, raw_stderr);
+    timer.track("gh api", "rtk gh api", &raw_combined, &rtk_combined);
+
+    // 3. Exit code propagation is LAST (Risk 2 invariant)
+    if !output.status.success() {
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
+
     Ok(())
 }
 
