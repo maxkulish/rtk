@@ -336,8 +336,8 @@ Or, for full fix: sign macOS binaries with `codesign` in CI (requires Apple Deve
 |---|--------|--------|
 | 1 | Create `maxkulish/homebrew-tap` repo on GitHub | [x] done 2026-02-23 |
 | 2 | Add `Formula/` dir, README, push to main | [x] done 2026-02-23 |
-| 3 | Create fine-grained PAT with Contents write on `homebrew-tap` | [ ] manual — https://github.com/settings/tokens?type=beta |
-| 4 | Add `HOMEBREW_TAP_TOKEN` secret to `maxkulish/rtk` | [ ] manual — `gh secret set HOMEBREW_TAP_TOKEN --repo maxkulish/rtk` |
+| 3 | Create fine-grained PAT with Contents write on `homebrew-tap` | [x] done 2026-02-23 |
+| 4 | Add `HOMEBREW_TAP_TOKEN` secret to `maxkulish/rtk` | [x] done 2026-02-23 |
 | 5 | Update `release.yml` — checksums download (use `github.repository`) | [x] done 2026-02-23 |
 | 6 | Update `release.yml` — formula URLs (use `github.repository`) | [x] done 2026-02-23 |
 | 7 | Update `release.yml` — push target (`maxkulish/homebrew-tap`) | [x] done 2026-02-23 |
@@ -345,8 +345,8 @@ Or, for full fix: sign macOS binaries with `codesign` in CI (requires Apple Deve
 | 9 | Update `release.yml` — cross-platform `base64` command | [x] done 2026-02-23 |
 | 10 | Update `release.yml` — add `ruby -c` formula validation step | [x] done 2026-02-23 |
 | 11 | Update `release.yml` — add failure alert step (auto-create issue) | [x] done 2026-02-23 |
-| 12 | Test with `gh workflow run release.yml -f tag=v0.23.2` | [ ] blocked by #3, #4 |
-| 13 | Verify `brew tap maxkulish/tap && brew install rtk` works | [ ] blocked by #12 |
+| 12 | Test with `gh workflow run release.yml -f tag=v0.23.2` | [x] done 2026-02-23 |
+| 13 | Verify `brew install maxkulish/tap/rtk` works | [x] done 2026-02-23 (use fully-qualified name — core has conflicting `rtk` formula) |
 | 14 | Document tap URL in project README | [ ] |
 
 ---

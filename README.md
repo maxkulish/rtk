@@ -4,7 +4,7 @@
 
 **High-performance CLI proxy to minimize LLM token consumption.**
 
-[Website](https://www.rtk-ai.app) | [GitHub](https://github.com/rtk-ai/rtk) | [Install](INSTALL.md)
+[Upstream](https://github.com/rtk-ai/rtk) | [GitHub](https://github.com/maxkulish/rtk) | [Install](INSTALL.md)
 
 rtk filters and compresses command outputs before they reach your LLM context, saving 60-90% of tokens on common operations.
 
@@ -13,7 +13,7 @@ rtk filters and compresses command outputs before they reach your LLM context, s
 **There are TWO different projects named "rtk":**
 
 1. ✅ **This project (Rust Token Killer)** - LLM token optimizer
-   - Repos: `rtk-ai/rtk`
+   - Fork: `maxkulish/rtk` (upstream: `rtk-ai/rtk`)
    - Purpose: Reduce Claude Code token consumption
 
 2. ❌ **reachingforthejack/rtk** - Rust Type Kit (DIFFERENT PROJECT)
@@ -68,13 +68,15 @@ If already installed and `rtk gain` works, **DO NOT reinstall**. Skip to Quick S
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install rtk
+brew install maxkulish/tap/rtk
 ```
+
+> **Note**: Use the fully-qualified name `maxkulish/tap/rtk` — Homebrew core has a different `rtk` package (Rust Type Kit).
 
 ### Quick Install (Linux/macOS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/maxkulish/rtk/refs/heads/master/install.sh | sh
 ```
 
 > **Note**: rtk installs to `~/.local/bin` by default. If this directory is not in your PATH, add it:
@@ -90,18 +92,18 @@ rtk gain  # Must show token savings stats (not "command not found")
 ### Alternative: Manual Installation
 
 ```bash
-# From rtk-ai upstream (maintained by pszymkowiak)
-cargo install --git https://github.com/rtk-ai/rtk
+# From this fork
+cargo install --git https://github.com/maxkulish/rtk
 
-# OR if published to crates.io
-cargo install rtk
+# From upstream
+cargo install --git https://github.com/rtk-ai/rtk
 ```
 
-⚠️ **WARNING**: `cargo install rtk` from crates.io might install the wrong package (Type Kit instead of Token Killer). Always verify with `rtk gain` after installation.
+⚠️ **WARNING**: `cargo install rtk` from crates.io installs the wrong package (Rust Type Kit, not Token Killer). Always install from git. Verify with `rtk gain` after installation.
 
 ### Alternative: Pre-built Binaries
 
-Download from [rtk-ai/releases](https://github.com/rtk-ai/rtk/releases):
+Download from [Releases](https://github.com/maxkulish/rtk/releases):
 - macOS: `rtk-x86_64-apple-darwin.tar.gz` / `rtk-aarch64-apple-darwin.tar.gz`
 - Linux: `rtk-x86_64-unknown-linux-gnu.tar.gz` / `rtk-aarch64-unknown-linux-gnu.tar.gz`
 - Windows: `rtk-x86_64-pc-windows-msvc.zip`
@@ -712,7 +714,7 @@ cp ~/.claude/settings.json.bak ~/.claude/settings.json
 cargo uninstall rtk
 
 # If installed via package manager
-brew uninstall rtk          # macOS Homebrew
+brew uninstall maxkulish/tap/rtk  # macOS Homebrew
 sudo apt remove rtk         # Debian/Ubuntu
 sudo dnf remove rtk         # Fedora/RHEL
 ```
@@ -855,4 +857,4 @@ Contributions welcome! Please open an issue or PR on GitHub.
 
 - Website: https://www.rtk-ai.app
 - Email: contact@rtk-ai.app
-- Issues: https://github.com/rtk-ai/rtk/issues
+- Issues: https://github.com/maxkulish/rtk/issues
