@@ -335,6 +335,9 @@ enum Commands {
         /// Output format: text, json, csv
         #[arg(short, long, default_value = "text")]
         format: String,
+        /// Show global statistics (default: current project only)
+        #[arg(long)]
+        global: bool,
     },
 
     /// Claude Code economics: spending (ccusage) vs savings (rtk) analysis
@@ -1165,6 +1168,7 @@ fn main() -> Result<()> {
             monthly,
             all,
             format,
+            global,
         } => {
             gain::run(
                 graph,
@@ -1176,6 +1180,7 @@ fn main() -> Result<()> {
                 monthly,
                 all,
                 &format,
+                global,
                 cli.verbose,
             )?;
         }

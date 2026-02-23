@@ -9,7 +9,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use crate::ccusage::{self, CcusagePeriod, Granularity};
-use crate::tracking::{DayStats, MonthStats, Tracker, WeekStats};
+use crate::tracking::{DayStats, MonthStats, QueryScope, Tracker, WeekStats};
 use crate::utils::{format_cpt, format_tokens, format_usd};
 
 // ── Constants ──
@@ -428,7 +428,7 @@ fn display_summary(tracker: &Tracker, verbose: u8) -> Result<()> {
     let cc_monthly =
         ccusage::fetch(Granularity::Monthly).context("Failed to fetch ccusage monthly data")?;
     let rtk_monthly = tracker
-        .get_by_month()
+        .get_by_month(&QueryScope::Global)
         .context("Failed to load monthly token savings from database")?;
     let periods = merge_monthly(cc_monthly, rtk_monthly);
 
@@ -543,7 +543,7 @@ fn display_daily(tracker: &Tracker, verbose: u8) -> Result<()> {
     let cc_daily =
         ccusage::fetch(Granularity::Daily).context("Failed to fetch ccusage daily data")?;
     let rtk_daily = tracker
-        .get_all_days()
+        .get_all_days(&QueryScope::Global)
         .context("Failed to load daily token savings from database")?;
     let periods = merge_daily(cc_daily, rtk_daily);
 
@@ -557,7 +557,7 @@ fn display_weekly(tracker: &Tracker, verbose: u8) -> Result<()> {
     let cc_weekly =
         ccusage::fetch(Granularity::Weekly).context("Failed to fetch ccusage weekly data")?;
     let rtk_weekly = tracker
-        .get_by_week()
+        .get_by_week(&QueryScope::Global)
         .context("Failed to load weekly token savings from database")?;
     let periods = merge_weekly(cc_weekly, rtk_weekly);
 
@@ -571,7 +571,7 @@ fn display_monthly(tracker: &Tracker, verbose: u8) -> Result<()> {
     let cc_monthly =
         ccusage::fetch(Granularity::Monthly).context("Failed to fetch ccusage monthly data")?;
     let rtk_monthly = tracker
-        .get_by_month()
+        .get_by_month(&QueryScope::Global)
         .context("Failed to load monthly token savings from database")?;
     let periods = merge_monthly(cc_monthly, rtk_monthly);
 
@@ -686,7 +686,7 @@ fn export_json(
         let cc = ccusage::fetch(Granularity::Daily)
             .context("Failed to fetch ccusage daily data for JSON export")?;
         let rtk = tracker
-            .get_all_days()
+            .get_all_days(&QueryScope::Global)
             .context("Failed to load daily token savings for JSON export")?;
         export.daily = Some(merge_daily(cc, rtk));
     }
@@ -695,7 +695,7 @@ fn export_json(
         let cc = ccusage::fetch(Granularity::Weekly)
             .context("Failed to fetch ccusage weekly data for export")?;
         let rtk = tracker
-            .get_by_week()
+            .get_by_week(&QueryScope::Global)
             .context("Failed to load weekly token savings for export")?;
         export.weekly = Some(merge_weekly(cc, rtk));
     }
@@ -704,7 +704,7 @@ fn export_json(
         let cc = ccusage::fetch(Granularity::Monthly)
             .context("Failed to fetch ccusage monthly data for export")?;
         let rtk = tracker
-            .get_by_month()
+            .get_by_month(&QueryScope::Global)
             .context("Failed to load monthly token savings for export")?;
         let periods = merge_monthly(cc, rtk);
         export.totals = Some(compute_totals(&periods));
@@ -733,7 +733,7 @@ fn export_csv(
         let cc = ccusage::fetch(Granularity::Daily)
             .context("Failed to fetch ccusage daily data for JSON export")?;
         let rtk = tracker
-            .get_all_days()
+            .get_all_days(&QueryScope::Global)
             .context("Failed to load daily token savings for JSON export")?;
         let periods = merge_daily(cc, rtk);
         for p in periods {
@@ -745,7 +745,7 @@ fn export_csv(
         let cc = ccusage::fetch(Granularity::Weekly)
             .context("Failed to fetch ccusage weekly data for export")?;
         let rtk = tracker
-            .get_by_week()
+            .get_by_week(&QueryScope::Global)
             .context("Failed to load weekly token savings for export")?;
         let periods = merge_weekly(cc, rtk);
         for p in periods {
@@ -757,7 +757,7 @@ fn export_csv(
         let cc = ccusage::fetch(Granularity::Monthly)
             .context("Failed to fetch ccusage monthly data for export")?;
         let rtk = tracker
-            .get_by_month()
+            .get_by_month(&QueryScope::Global)
             .context("Failed to load monthly token savings for export")?;
         let periods = merge_monthly(cc, rtk);
         for p in periods {

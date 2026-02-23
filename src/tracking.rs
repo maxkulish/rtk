@@ -34,11 +34,50 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::ffi::OsString;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 /// Number of days to retain tracking history before automatic cleanup.
 const HISTORY_DAYS: i64 = 90;
+
+/// Scope for gain queries: filter by project or show all.
+pub enum QueryScope {
+    /// Filter to records matching a specific working directory.
+    Project(String),
+    /// No filter — include all records.
+    Global,
+}
+
+/// Detect the project root by walking up from CWD.
+///
+/// Looks for `.git`, `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`.
+/// Returns the root path as a string, or empty string if no marker found.
+pub fn detect_project_root() -> String {
+    detect_project_root_from(&std::env::current_dir().unwrap_or_default())
+}
+
+fn detect_project_root_from(start: &Path) -> String {
+    const MARKERS: &[&str] = &[
+        ".git",
+        "Cargo.toml",
+        "package.json",
+        "go.mod",
+        "pyproject.toml",
+    ];
+
+    let mut dir = start.to_path_buf();
+    loop {
+        for marker in MARKERS {
+            if dir.join(marker).exists() {
+                return dir.to_string_lossy().to_string();
+            }
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    String::new()
+}
 
 /// Main tracking interface for recording and querying command history.
 ///
@@ -254,6 +293,16 @@ impl Tracker {
             [],
         );
 
+        // Migration: add working_dir column if it doesn't exist
+        let _ = conn.execute(
+            "ALTER TABLE commands ADD COLUMN working_dir TEXT DEFAULT ''",
+            [],
+        );
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_working_dir ON commands(working_dir)",
+            [],
+        )?;
+
         Ok(Self { conn })
     }
 
@@ -291,6 +340,15 @@ impl Tracker {
             [],
         );
 
+        let _ = conn.execute(
+            "ALTER TABLE commands ADD COLUMN working_dir TEXT DEFAULT ''",
+            [],
+        );
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_working_dir ON commands(working_dir)",
+            [],
+        )?;
+
         Ok(Self { conn })
     }
 
@@ -323,6 +381,7 @@ impl Tracker {
         input_tokens: usize,
         output_tokens: usize,
         exec_time_ms: u64,
+        working_dir: &str,
     ) -> Result<()> {
         let saved = input_tokens.saturating_sub(output_tokens);
         let pct = if input_tokens > 0 {
@@ -332,8 +391,8 @@ impl Tracker {
         };
 
         self.conn.execute(
-            "INSERT INTO commands (timestamp, original_cmd, rtk_cmd, input_tokens, output_tokens, saved_tokens, savings_pct, exec_time_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT INTO commands (timestamp, original_cmd, rtk_cmd, input_tokens, output_tokens, saved_tokens, savings_pct, exec_time_ms, working_dir)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 Utc::now().to_rfc3339(),
                 original_cmd,
@@ -342,7 +401,8 @@ impl Tracker {
                 output_tokens as i64,
                 saved as i64,
                 pct,
-                exec_time_ms as i64
+                exec_time_ms as i64,
+                working_dir
             ],
         )?;
 
@@ -359,44 +419,35 @@ impl Tracker {
         Ok(())
     }
 
-    /// Get overall summary statistics across all recorded commands.
-    ///
-    /// Returns aggregated metrics including:
-    /// - Total commands, tokens (input/output/saved)
-    /// - Average savings percentage and execution time
-    /// - Top 10 commands by tokens saved
-    /// - Last 30 days of activity
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use rtk::tracking::Tracker;
-    ///
-    /// let tracker = Tracker::new()?;
-    /// let summary = tracker.get_summary()?;
-    /// println!("Saved {} tokens ({:.1}%)",
-    ///     summary.total_saved, summary.avg_savings_pct);
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
-    pub fn get_summary(&self) -> Result<GainSummary> {
+    /// Get overall summary statistics, optionally scoped to a project.
+    pub fn get_summary(&self, scope: &QueryScope, top_n: usize) -> Result<GainSummary> {
         let mut total_commands = 0usize;
         let mut total_input = 0usize;
         let mut total_output = 0usize;
         let mut total_saved = 0usize;
         let mut total_time_ms = 0u64;
 
-        let mut stmt = self.conn.prepare(
-            "SELECT input_tokens, output_tokens, saved_tokens, exec_time_ms FROM commands",
-        )?;
+        let (where_clause, scope_param) = scope_filter(scope);
+        let sql = format!(
+            "SELECT input_tokens, output_tokens, saved_tokens, exec_time_ms FROM commands{}",
+            where_clause
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<(usize, usize, usize, u64)> {
             Ok((
                 row.get::<_, i64>(0)? as usize,
                 row.get::<_, i64>(1)? as usize,
                 row.get::<_, i64>(2)? as usize,
                 row.get::<_, i64>(3)? as u64,
             ))
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir], &map_row)?
+        } else {
+            stmt.query_map([], &map_row)?
+        };
 
         for row in rows {
             let (input, output, saved, time_ms) = row?;
@@ -419,8 +470,8 @@ impl Tracker {
             0
         };
 
-        let by_command = self.get_by_command()?;
-        let by_day = self.get_by_day()?;
+        let by_command = self.get_by_command(scope, top_n)?;
+        let by_day = self.get_by_day(scope)?;
 
         Ok(GainSummary {
             total_commands,
@@ -435,16 +486,20 @@ impl Tracker {
         })
     }
 
-    fn get_by_command(&self) -> Result<Vec<CommandStats>> {
-        let mut stmt = self.conn.prepare(
+    fn get_by_command(&self, scope: &QueryScope, top_n: usize) -> Result<Vec<CommandStats>> {
+        let (where_clause, scope_param) = scope_filter(scope);
+        let limit_param = if scope_param.is_some() { "?2" } else { "?1" };
+        let sql = format!(
             "SELECT rtk_cmd, COUNT(*), SUM(saved_tokens), AVG(savings_pct), AVG(exec_time_ms)
-             FROM commands
+             FROM commands{}
              GROUP BY rtk_cmd
              ORDER BY SUM(saved_tokens) DESC
-             LIMIT 10",
-        )?;
+             LIMIT {}",
+            where_clause, limit_param
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<CommandStats> {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, i64>(1)? as usize,
@@ -452,23 +507,38 @@ impl Tracker {
                 row.get::<_, f64>(3)?,
                 row.get::<_, f64>(4)? as u64,
             ))
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir, top_n as i64], &map_row)?
+        } else {
+            stmt.query_map(params![top_n as i64], &map_row)?
+        };
 
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
-    fn get_by_day(&self) -> Result<Vec<(String, usize)>> {
-        let mut stmt = self.conn.prepare(
+    fn get_by_day(&self, scope: &QueryScope) -> Result<Vec<(String, usize)>> {
+        let (where_clause, scope_param) = scope_filter(scope);
+        let sql = format!(
             "SELECT DATE(timestamp), SUM(saved_tokens)
-             FROM commands
+             FROM commands{}
              GROUP BY DATE(timestamp)
              ORDER BY DATE(timestamp) DESC
              LIMIT 30",
-        )?;
+            where_clause
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<(String, usize)> {
             Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir], &map_row)?
+        } else {
+            stmt.query_map([], &map_row)?
+        };
 
         let mut result: Vec<_> = rows.collect::<Result<Vec<_>, _>>()?;
         result.reverse();
@@ -493,8 +563,9 @@ impl Tracker {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn get_all_days(&self) -> Result<Vec<DayStats>> {
-        let mut stmt = self.conn.prepare(
+    pub fn get_all_days(&self, scope: &QueryScope) -> Result<Vec<DayStats>> {
+        let (where_clause, scope_param) = scope_filter(scope);
+        let sql = format!(
             "SELECT
                 DATE(timestamp) as date,
                 COUNT(*) as commands,
@@ -502,12 +573,14 @@ impl Tracker {
                 SUM(output_tokens) as output,
                 SUM(saved_tokens) as saved,
                 SUM(exec_time_ms) as total_time
-             FROM commands
+             FROM commands{}
              GROUP BY DATE(timestamp)
              ORDER BY DATE(timestamp) DESC",
-        )?;
+            where_clause
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<DayStats> {
             let input = row.get::<_, i64>(2)? as usize;
             let saved = row.get::<_, i64>(4)? as usize;
             let commands = row.get::<_, i64>(1)? as usize;
@@ -533,7 +606,13 @@ impl Tracker {
                 total_time_ms: total_time,
                 avg_time_ms,
             })
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir], &map_row)?
+        } else {
+            stmt.query_map([], &map_row)?
+        };
 
         let mut result: Vec<_> = rows.collect::<Result<Vec<_>, _>>()?;
         result.reverse();
@@ -558,8 +637,9 @@ impl Tracker {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn get_by_week(&self) -> Result<Vec<WeekStats>> {
-        let mut stmt = self.conn.prepare(
+    pub fn get_by_week(&self, scope: &QueryScope) -> Result<Vec<WeekStats>> {
+        let (where_clause, scope_param) = scope_filter(scope);
+        let sql = format!(
             "SELECT
                 DATE(timestamp, 'weekday 0', '-6 days') as week_start,
                 DATE(timestamp, 'weekday 0') as week_end,
@@ -568,12 +648,14 @@ impl Tracker {
                 SUM(output_tokens) as output,
                 SUM(saved_tokens) as saved,
                 SUM(exec_time_ms) as total_time
-             FROM commands
+             FROM commands{}
              GROUP BY week_start
              ORDER BY week_start DESC",
-        )?;
+            where_clause
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<WeekStats> {
             let input = row.get::<_, i64>(3)? as usize;
             let saved = row.get::<_, i64>(5)? as usize;
             let commands = row.get::<_, i64>(2)? as usize;
@@ -600,7 +682,13 @@ impl Tracker {
                 total_time_ms: total_time,
                 avg_time_ms,
             })
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir], &map_row)?
+        } else {
+            stmt.query_map([], &map_row)?
+        };
 
         let mut result: Vec<_> = rows.collect::<Result<Vec<_>, _>>()?;
         result.reverse();
@@ -625,8 +713,9 @@ impl Tracker {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn get_by_month(&self) -> Result<Vec<MonthStats>> {
-        let mut stmt = self.conn.prepare(
+    pub fn get_by_month(&self, scope: &QueryScope) -> Result<Vec<MonthStats>> {
+        let (where_clause, scope_param) = scope_filter(scope);
+        let sql = format!(
             "SELECT
                 strftime('%Y-%m', timestamp) as month,
                 COUNT(*) as commands,
@@ -634,12 +723,14 @@ impl Tracker {
                 SUM(output_tokens) as output,
                 SUM(saved_tokens) as saved,
                 SUM(exec_time_ms) as total_time
-             FROM commands
+             FROM commands{}
              GROUP BY month
              ORDER BY month DESC",
-        )?;
+            where_clause
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map([], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<MonthStats> {
             let input = row.get::<_, i64>(2)? as usize;
             let saved = row.get::<_, i64>(4)? as usize;
             let commands = row.get::<_, i64>(1)? as usize;
@@ -665,7 +756,13 @@ impl Tracker {
                 total_time_ms: total_time,
                 avg_time_ms,
             })
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir], &map_row)?
+        } else {
+            stmt.query_map([], &map_row)?
+        };
 
         let mut result: Vec<_> = rows.collect::<Result<Vec<_>, _>>()?;
         result.reverse();
@@ -693,15 +790,19 @@ impl Tracker {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn get_recent(&self, limit: usize) -> Result<Vec<CommandRecord>> {
-        let mut stmt = self.conn.prepare(
+    pub fn get_recent(&self, limit: usize, scope: &QueryScope) -> Result<Vec<CommandRecord>> {
+        let (where_clause, scope_param) = scope_filter(scope);
+        let limit_param = if scope_param.is_some() { "?2" } else { "?1" };
+        let sql = format!(
             "SELECT timestamp, rtk_cmd, saved_tokens, savings_pct
-             FROM commands
+             FROM commands{}
              ORDER BY timestamp DESC
-             LIMIT ?1",
-        )?;
+             LIMIT {}",
+            where_clause, limit_param
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
 
-        let rows = stmt.query_map(params![limit as i64], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<CommandRecord> {
             Ok(CommandRecord {
                 timestamp: DateTime::parse_from_rfc3339(&row.get::<_, String>(0)?)
                     .map(|dt| dt.with_timezone(&Utc))
@@ -710,9 +811,27 @@ impl Tracker {
                 saved_tokens: row.get::<_, i64>(2)? as usize,
                 savings_pct: row.get(3)?,
             })
-        })?;
+        };
+
+        let rows = if let Some(ref dir) = scope_param {
+            stmt.query_map(params![dir, limit as i64], &map_row)?
+        } else {
+            stmt.query_map(params![limit as i64], &map_row)?
+        };
 
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+}
+
+/// Build a SQL WHERE clause and optional parameter for scope filtering.
+///
+/// Returns `(" WHERE working_dir = ?1", Some(dir))` for Project scope,
+/// or `("", None)` for Global scope. For queries that already have parameters,
+/// the caller must adjust parameter numbering.
+fn scope_filter(scope: &QueryScope) -> (String, Option<String>) {
+    match scope {
+        QueryScope::Project(dir) => (" WHERE working_dir = ?1".to_string(), Some(dir.clone())),
+        QueryScope::Global => (String::new(), None),
     }
 }
 
@@ -829,6 +948,7 @@ impl TimedExecution {
         let elapsed_ms = self.start.elapsed().as_millis() as u64;
         let input_tokens = estimate_tokens(input);
         let output_tokens = estimate_tokens(output);
+        let working_dir = detect_project_root();
 
         if let Ok(tracker) = Tracker::new() {
             let _ = tracker.record(
@@ -837,6 +957,7 @@ impl TimedExecution {
                 input_tokens,
                 output_tokens,
                 elapsed_ms,
+                &working_dir,
             );
         }
     }
@@ -863,9 +984,10 @@ impl TimedExecution {
     /// ```
     pub fn track_passthrough(&self, original_cmd: &str, rtk_cmd: &str) {
         let elapsed_ms = self.start.elapsed().as_millis() as u64;
+        let working_dir = detect_project_root();
         // input_tokens=0, output_tokens=0 won't dilute savings statistics
         if let Ok(tracker) = Tracker::new() {
-            let _ = tracker.record(original_cmd, rtk_cmd, 0, 0, elapsed_ms);
+            let _ = tracker.record(original_cmd, rtk_cmd, 0, 0, elapsed_ms, &working_dir);
         }
     }
 }
@@ -933,10 +1055,12 @@ mod tests {
         let (tracker, _dir) = test_tracker();
 
         tracker
-            .record("git status", "rtk git status", 100, 20, 50)
+            .record("git status", "rtk git status", 100, 20, 50, "/projects/foo")
             .expect("Failed to record");
 
-        let recent = tracker.get_recent(10).expect("Failed to get recent");
+        let recent = tracker
+            .get_recent(10, &QueryScope::Global)
+            .expect("Failed to get recent");
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].rtk_cmd, "rtk git status");
         assert_eq!(recent[0].saved_tokens, 80);
@@ -949,14 +1073,16 @@ mod tests {
         let (tracker, _dir) = test_tracker();
 
         tracker
-            .record("cmd1", "rtk cmd1", 1000, 200, 10)
+            .record("cmd1", "rtk cmd1", 1000, 200, 10, "/projects/foo")
             .expect("Failed to record cmd1");
 
         tracker
-            .record("cmd2", "rtk cmd2 passthrough", 0, 0, 5)
+            .record("cmd2", "rtk cmd2 passthrough", 0, 0, 5, "/projects/foo")
             .expect("Failed to record passthrough");
 
-        let recent = tracker.get_recent(20).expect("Failed to get recent");
+        let recent = tracker
+            .get_recent(20, &QueryScope::Global)
+            .expect("Failed to get recent");
         assert_eq!(recent.len(), 2);
 
         let record1 = recent
@@ -988,7 +1114,9 @@ mod tests {
         timer.track("test cmd", "rtk test", "raw input data", "filtered");
 
         let tracker = Tracker::with_path(&db_path).expect("Failed to create tracker");
-        let recent = tracker.get_recent(5).expect("Failed to get recent");
+        let recent = tracker
+            .get_recent(5, &QueryScope::Global)
+            .expect("Failed to get recent");
         assert!(recent.iter().any(|r| r.rtk_cmd == "rtk test"));
 
         std::env::remove_var("RTK_DB_PATH");
@@ -1006,7 +1134,9 @@ mod tests {
         timer.track_passthrough("git tag", "rtk git tag (passthrough)");
 
         let tracker = Tracker::with_path(&db_path).expect("Failed to create tracker");
-        let recent = tracker.get_recent(5).expect("Failed to get recent");
+        let recent = tracker
+            .get_recent(5, &QueryScope::Global)
+            .expect("Failed to get recent");
 
         let pt = recent
             .iter()
@@ -1040,5 +1170,141 @@ mod tests {
 
         let db_path = get_db_path().expect("Failed to get db path");
         assert!(db_path.ends_with("rtk/history.db"));
+    }
+
+    // 9. detect_project_root finds .git directory
+    #[test]
+    fn test_detect_project_root_git() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        let sub = dir.path().join("src");
+        std::fs::create_dir(&sub).unwrap();
+
+        let root = detect_project_root_from(&sub);
+        assert_eq!(root, dir.path().to_string_lossy().to_string());
+    }
+
+    // 10. detect_project_root falls back to empty when no markers
+    #[test]
+    fn test_detect_project_root_no_markers() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("empty");
+        std::fs::create_dir(&sub).unwrap();
+
+        let root = detect_project_root_from(&sub);
+        assert!(root.is_empty(), "Expected empty, got: {}", root);
+    }
+
+    // 11. working_dir is recorded in the database
+    #[test]
+    fn test_working_dir_recorded() {
+        let (tracker, _dir) = test_tracker();
+
+        tracker
+            .record(
+                "git status",
+                "rtk git status",
+                100,
+                20,
+                50,
+                "/projects/myapp",
+            )
+            .expect("Failed to record");
+
+        let mut stmt = tracker
+            .conn
+            .prepare("SELECT working_dir FROM commands WHERE rtk_cmd = 'rtk git status'")
+            .unwrap();
+        let dir: String = stmt.query_row([], |row| row.get(0)).unwrap();
+        assert_eq!(dir, "/projects/myapp");
+    }
+
+    // 12. project scope filters to matching records only
+    #[test]
+    fn test_project_scope_filters() {
+        let (tracker, _dir) = test_tracker();
+
+        tracker
+            .record("cmd1", "rtk cmd1", 100, 20, 5, "/projects/foo")
+            .unwrap();
+        tracker
+            .record("cmd2", "rtk cmd2", 200, 40, 5, "/projects/bar")
+            .unwrap();
+        tracker
+            .record("cmd3", "rtk cmd3", 300, 60, 5, "/projects/foo")
+            .unwrap();
+
+        let scope_foo = QueryScope::Project("/projects/foo".to_string());
+        let summary = tracker.get_summary(&scope_foo, 10).unwrap();
+        assert_eq!(summary.total_commands, 2);
+        assert_eq!(summary.total_input, 400); // 100 + 300
+
+        let recent = tracker.get_recent(10, &scope_foo).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert!(recent.iter().all(|r| r.rtk_cmd != "rtk cmd2"));
+    }
+
+    // 13. global scope returns all records
+    #[test]
+    fn test_global_scope_returns_all() {
+        let (tracker, _dir) = test_tracker();
+
+        tracker
+            .record("cmd1", "rtk cmd1", 100, 20, 5, "/projects/foo")
+            .unwrap();
+        tracker
+            .record("cmd2", "rtk cmd2", 200, 40, 5, "/projects/bar")
+            .unwrap();
+
+        let summary = tracker.get_summary(&QueryScope::Global, 20).unwrap();
+        assert_eq!(summary.total_commands, 2);
+    }
+
+    // 14. old records (working_dir='') appear in global but not project scope
+    #[test]
+    fn test_old_records_global_only() {
+        let (tracker, _dir) = test_tracker();
+
+        // Simulate old record with empty working_dir
+        tracker
+            .record("old cmd", "rtk old", 100, 20, 5, "")
+            .unwrap();
+        tracker
+            .record("new cmd", "rtk new", 200, 40, 5, "/projects/foo")
+            .unwrap();
+
+        let global = tracker.get_summary(&QueryScope::Global, 20).unwrap();
+        assert_eq!(global.total_commands, 2);
+
+        let project = tracker
+            .get_summary(&QueryScope::Project("/projects/foo".to_string()), 10)
+            .unwrap();
+        assert_eq!(project.total_commands, 1);
+    }
+
+    // 15. top_n limit works correctly
+    #[test]
+    fn test_top_n_limit() {
+        let (tracker, _dir) = test_tracker();
+
+        for i in 0..5 {
+            tracker
+                .record(
+                    &format!("cmd{}", i),
+                    &format!("rtk cmd{}", i),
+                    100 * (i + 1),
+                    20,
+                    5,
+                    "/projects/foo",
+                )
+                .unwrap();
+        }
+
+        let scope = QueryScope::Project("/projects/foo".to_string());
+        let summary_2 = tracker.get_summary(&scope, 2).unwrap();
+        assert_eq!(summary_2.by_command.len(), 2);
+
+        let summary_10 = tracker.get_summary(&scope, 10).unwrap();
+        assert_eq!(summary_10.by_command.len(), 5);
     }
 }

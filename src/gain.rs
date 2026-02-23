@@ -1,5 +1,5 @@
 use crate::display_helpers::{format_duration, print_period_table};
-use crate::tracking::{DayStats, MonthStats, Tracker, WeekStats};
+use crate::tracking::{detect_project_root, DayStats, MonthStats, QueryScope, Tracker, WeekStats};
 use crate::utils::format_tokens;
 use anyhow::{Context, Result};
 use colored::Colorize; // added: terminal colors
@@ -17,32 +17,74 @@ pub fn run(
     monthly: bool,
     all: bool,
     format: &str,
+    global: bool,
     _verbose: u8,
 ) -> Result<()> {
     let tracker = Tracker::new().context("Failed to initialize tracking database")?;
 
+    let (scope, top_n) = if global {
+        (QueryScope::Global, 20)
+    } else {
+        let dir = detect_project_root();
+        if dir.is_empty() {
+            (QueryScope::Global, 20)
+        } else {
+            (QueryScope::Project(dir), 10)
+        }
+    };
+
     // Handle export formats
     match format {
-        "json" => return export_json(&tracker, daily, weekly, monthly, all),
-        "csv" => return export_csv(&tracker, daily, weekly, monthly, all),
+        "json" => return export_json(&tracker, &scope, top_n, daily, weekly, monthly, all),
+        "csv" => return export_csv(&tracker, &scope, daily, weekly, monthly, all),
         _ => {} // Continue with text format
     }
 
     let summary = tracker
-        .get_summary()
+        .get_summary(&scope, top_n)
         .context("Failed to load token savings summary from database")?;
 
     if summary.total_commands == 0 {
-        println!("No tracking data yet.");
-        println!("Run some rtk commands to start tracking savings.");
+        match &scope {
+            QueryScope::Project(dir) => {
+                let name = std::path::Path::new(dir)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| dir.clone());
+                println!("No tracking data for project \"{}\" yet.", name);
+                println!("Run rtk commands in this project, or use --global for all projects.");
+            }
+            QueryScope::Global => {
+                println!("No tracking data yet.");
+                println!("Run some rtk commands to start tracking savings.");
+            }
+        }
         return Ok(());
     }
 
     // Default view (summary)
     if !daily && !weekly && !monthly && !all {
-        // added: styled header with bold title
-        println!("{}", styled("RTK Token Savings (Global Scope)", true));
+        let header = match &scope {
+            QueryScope::Project(dir) => {
+                let name = std::path::Path::new(dir)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| dir.clone());
+                format!("RTK Token Savings (Project: {})", name)
+            }
+            QueryScope::Global => "RTK Token Savings (Global Scope)".to_string(),
+        };
+        println!("{}", styled(&header, true));
         println!("{}", "═".repeat(60));
+        match &scope {
+            QueryScope::Project(dir) => {
+                println!("  Path: {}", dir);
+                println!("  Tip: use --global for all projects");
+            }
+            QueryScope::Global => {
+                println!("  Tip: run without --global for current project stats");
+            }
+        }
         println!();
 
         // added: KPI-style aligned output
@@ -161,7 +203,7 @@ pub fn run(
         }
 
         if history {
-            let recent = tracker.get_recent(10)?;
+            let recent = tracker.get_recent(10, &scope)?;
             if !recent.is_empty() {
                 println!("{}", styled("Recent Commands", true)); // added: styled header
                 println!("──────────────────────────────────────────────────────────");
@@ -224,15 +266,15 @@ pub fn run(
 
     // Time breakdown views
     if all || daily {
-        print_daily_full(&tracker)?;
+        print_daily_full(&tracker, &scope)?;
     }
 
     if all || weekly {
-        print_weekly(&tracker)?;
+        print_weekly(&tracker, &scope)?;
     }
 
     if all || monthly {
-        print_monthly(&tracker)?;
+        print_monthly(&tracker, &scope)?;
     }
 
     Ok(())
@@ -362,20 +404,20 @@ fn print_ascii_graph(data: &[(String, usize)]) {
     }
 }
 
-fn print_daily_full(tracker: &Tracker) -> Result<()> {
-    let days = tracker.get_all_days()?;
+fn print_daily_full(tracker: &Tracker, scope: &QueryScope) -> Result<()> {
+    let days = tracker.get_all_days(scope)?;
     print_period_table(&days);
     Ok(())
 }
 
-fn print_weekly(tracker: &Tracker) -> Result<()> {
-    let weeks = tracker.get_by_week()?;
+fn print_weekly(tracker: &Tracker, scope: &QueryScope) -> Result<()> {
+    let weeks = tracker.get_by_week(scope)?;
     print_period_table(&weeks);
     Ok(())
 }
 
-fn print_monthly(tracker: &Tracker) -> Result<()> {
-    let months = tracker.get_by_month()?;
+fn print_monthly(tracker: &Tracker, scope: &QueryScope) -> Result<()> {
+    let months = tracker.get_by_month(scope)?;
     print_period_table(&months);
     Ok(())
 }
@@ -404,13 +446,15 @@ struct ExportSummary {
 
 fn export_json(
     tracker: &Tracker,
+    scope: &QueryScope,
+    top_n: usize,
     daily: bool,
     weekly: bool,
     monthly: bool,
     all: bool,
 ) -> Result<()> {
     let summary = tracker
-        .get_summary()
+        .get_summary(scope, top_n)
         .context("Failed to load token savings summary from database")?;
 
     let export = ExportData {
@@ -424,17 +468,17 @@ fn export_json(
             avg_time_ms: summary.avg_time_ms,
         },
         daily: if all || daily {
-            Some(tracker.get_all_days()?)
+            Some(tracker.get_all_days(scope)?)
         } else {
             None
         },
         weekly: if all || weekly {
-            Some(tracker.get_by_week()?)
+            Some(tracker.get_by_week(scope)?)
         } else {
             None
         },
         monthly: if all || monthly {
-            Some(tracker.get_by_month()?)
+            Some(tracker.get_by_month(scope)?)
         } else {
             None
         },
@@ -448,13 +492,14 @@ fn export_json(
 
 fn export_csv(
     tracker: &Tracker,
+    scope: &QueryScope,
     daily: bool,
     weekly: bool,
     monthly: bool,
     all: bool,
 ) -> Result<()> {
     if all || daily {
-        let days = tracker.get_all_days()?;
+        let days = tracker.get_all_days(scope)?;
         println!("# Daily Data");
         println!("date,commands,input_tokens,output_tokens,saved_tokens,savings_pct,total_time_ms,avg_time_ms");
         for day in days {
@@ -474,7 +519,7 @@ fn export_csv(
     }
 
     if all || weekly {
-        let weeks = tracker.get_by_week()?;
+        let weeks = tracker.get_by_week(scope)?;
         println!("# Weekly Data");
         println!(
             "week_start,week_end,commands,input_tokens,output_tokens,saved_tokens,savings_pct,total_time_ms,avg_time_ms"
@@ -497,7 +542,7 @@ fn export_csv(
     }
 
     if all || monthly {
-        let months = tracker.get_by_month()?;
+        let months = tracker.get_by_month(scope)?;
         println!("# Monthly Data");
         println!("month,commands,input_tokens,output_tokens,saved_tokens,savings_pct,total_time_ms,avg_time_ms");
         for month in months {
