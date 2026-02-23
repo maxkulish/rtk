@@ -335,7 +335,7 @@ enum Commands {
         /// Output format: text, json, csv
         #[arg(short, long, default_value = "text")]
         format: String,
-        /// Show global statistics (default: current project only)
+        /// Show global statistics (default: current project; falls back to global when no project marker is found)
         #[arg(long)]
         global: bool,
     },

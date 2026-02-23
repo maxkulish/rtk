@@ -13,7 +13,7 @@
 //! # Quick Start
 //!
 //! ```no_run
-//! use rtk::tracking::{TimedExecution, Tracker};
+//! use rtk::tracking::{QueryScope, TimedExecution, Tracker};
 //!
 //! // Track a command execution
 //! let timer = TimedExecution::start();
@@ -23,7 +23,7 @@
 //!
 //! // Query statistics
 //! let tracker = Tracker::new().unwrap();
-//! let summary = tracker.get_summary().unwrap();
+//! let summary = tracker.get_summary(&QueryScope::Global, 10).unwrap();
 //! println!("Saved {} tokens", summary.total_saved);
 //! ```
 //!
@@ -65,11 +65,14 @@ fn detect_project_root_from(start: &Path) -> String {
         "pyproject.toml",
     ];
 
-    let mut dir = start.to_path_buf();
+    // Canonicalize once so symlinks, relative components, and platform
+    // path differences (e.g. drive-letter case on Windows) are normalized
+    // before storage.  Fall back to the raw path if canonicalization fails.
+    let mut dir = std::fs::canonicalize(start).unwrap_or_else(|_| start.to_path_buf());
     loop {
         for marker in MARKERS {
             if dir.join(marker).exists() {
-                return dir.to_string_lossy().to_string();
+                return dir.to_string_lossy().into_owned();
             }
         }
         if !dir.pop() {
@@ -95,12 +98,12 @@ fn detect_project_root_from(start: &Path) -> String {
 /// # Examples
 ///
 /// ```no_run
-/// use rtk::tracking::Tracker;
+/// use rtk::tracking::{QueryScope, Tracker};
 ///
 /// let tracker = Tracker::new()?;
-/// tracker.record("ls -la", "rtk ls", 1000, 200, 50)?;
+/// tracker.record("ls -la", "rtk ls", 1000, 200, 50, "/home/user/myproject")?;
 ///
-/// let summary = tracker.get_summary()?;
+/// let summary = tracker.get_summary(&QueryScope::Global, 10)?;
 /// println!("Total saved: {} tokens", summary.total_saved);
 /// # Ok::<(), anyhow::Error>(())
 /// ```
@@ -371,7 +374,7 @@ impl Tracker {
     /// use rtk::tracking::Tracker;
     ///
     /// let tracker = Tracker::new()?;
-    /// tracker.record("ls -la", "rtk ls", 1000, 200, 50)?;
+    /// tracker.record("ls -la", "rtk ls", 1000, 200, 50, "/home/user/myproject")?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn record(
@@ -553,10 +556,10 @@ impl Tracker {
     /// # Examples
     ///
     /// ```no_run
-    /// use rtk::tracking::Tracker;
+    /// use rtk::tracking::{QueryScope, Tracker};
     ///
     /// let tracker = Tracker::new()?;
-    /// let days = tracker.get_all_days()?;
+    /// let days = tracker.get_all_days(&QueryScope::Global)?;
     /// for day in days.iter().take(7) {
     ///     println!("{}: {} commands, {} tokens saved",
     ///         day.date, day.commands, day.saved_tokens);
@@ -627,10 +630,10 @@ impl Tracker {
     /// # Examples
     ///
     /// ```no_run
-    /// use rtk::tracking::Tracker;
+    /// use rtk::tracking::{QueryScope, Tracker};
     ///
     /// let tracker = Tracker::new()?;
-    /// let weeks = tracker.get_by_week()?;
+    /// let weeks = tracker.get_by_week(&QueryScope::Global)?;
     /// for week in weeks {
     ///     println!("{} to {}: {} tokens saved",
     ///         week.week_start, week.week_end, week.saved_tokens);
@@ -703,10 +706,10 @@ impl Tracker {
     /// # Examples
     ///
     /// ```no_run
-    /// use rtk::tracking::Tracker;
+    /// use rtk::tracking::{QueryScope, Tracker};
     ///
     /// let tracker = Tracker::new()?;
-    /// let months = tracker.get_by_month()?;
+    /// let months = tracker.get_by_month(&QueryScope::Global)?;
     /// for month in months {
     ///     println!("{}: {} tokens saved ({:.1}%)",
     ///         month.month, month.saved_tokens, month.savings_pct);
@@ -780,10 +783,10 @@ impl Tracker {
     /// # Examples
     ///
     /// ```no_run
-    /// use rtk::tracking::Tracker;
+    /// use rtk::tracking::{QueryScope, Tracker};
     ///
     /// let tracker = Tracker::new()?;
-    /// let recent = tracker.get_recent(10)?;
+    /// let recent = tracker.get_recent(10, &QueryScope::Global)?;
     /// for cmd in recent {
     ///     println!("{}: {} saved {:.1}%",
     ///         cmd.timestamp, cmd.rtk_cmd, cmd.savings_pct);
@@ -1181,7 +1184,11 @@ mod tests {
         std::fs::create_dir(&sub).unwrap();
 
         let root = detect_project_root_from(&sub);
-        assert_eq!(root, dir.path().to_string_lossy().to_string());
+        let expected = std::fs::canonicalize(dir.path())
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_eq!(root, expected);
     }
 
     // 10. detect_project_root falls back to empty when no markers
