@@ -16,7 +16,7 @@ This is a fork with critical fixes for git argument parsing and modern JavaScrip
 
 **Verify correct installation:**
 ```bash
-rtk --version  # Should show "rtk 0.24.0" (or newer)
+rtk --version  # Should show "rtk 0.24.0" (or newer) <!-- x-release-please-version -->
 rtk gain       # Should show token savings stats (NOT "command not found")
 ```
 
@@ -441,6 +441,46 @@ GitHub Actions workflow (.github/workflows/release.yml):
 - DEB/RPM package generation
 - Automated releases on version tags (v*)
 - Checksums for binary verification
+
+## Release Workflow (IMPORTANT - read before merging Release Please PRs)
+
+RTK uses Release Please for automated versioning. Version strings appear in multiple files
+and must stay in sync. Release Please handles this automatically via `extra-files` config
+and `x-release-please-version` annotations.
+
+### How it works
+
+1. `feat`/`fix` commits on master trigger Release Please to create/update a release PR
+2. The release PR bumps version in `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`
+3. It also bumps version in `README.md`, `CLAUDE.md`, `ARCHITECTURE.md` via `extra-files`
+   (these files have `<!-- x-release-please-version -->` annotations on version lines)
+4. Merging the release PR creates a git tag and triggers binary builds + Homebrew push
+
+### Before merging a Release Please PR
+
+1. Verify the PR updates ALL version references (check diff for README.md, CLAUDE.md, ARCHITECTURE.md)
+2. If any doc file is missing from the PR diff, the `x-release-please-version` annotation is broken
+3. Run `bash scripts/validate-docs.sh` to check consistency
+
+### When adding a new module
+
+If you add a `mod <name>;` to `main.rs`, also update ARCHITECTURE.md:
+- Add the module to the module table
+- Update the `Total: N modules` line to match `grep -c '^mod ' src/main.rs`
+- Update the module count breakdown section
+
+### When adding version references to new files
+
+If any new file needs a hardcoded version string:
+1. Add `<!-- x-release-please-version -->` annotation on the version line
+2. Add the file to `release-please-config.json` `extra-files` array
+3. Run `bash scripts/validate-docs.sh` to verify
+
+### Common failure: "docs do not mention version X"
+
+This means Release Please bumped Cargo.toml but a doc file wasn't updated.
+Fix: check that the file has `<!-- x-release-please-version -->` on the version line
+and is listed in `release-please-config.json` `extra-files`.
 
 ## Build Verification (Mandatory)
 
