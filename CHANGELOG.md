@@ -5,6 +5,13 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0](https://github.com/maxkulish/rtk/compare/v0.23.2...v0.24.0) (2026-03-02)
+
+
+### Features
+
+* port 6 upstream commits from rtk-ai/rtk master ([706f458](https://github.com/maxkulish/rtk/commit/706f4588e20ad1acb85e35f6075fee65ca635cf4))
+
 ## [0.22.2](https://github.com/rtk-ai/rtk/compare/v0.22.1...v0.22.2) (2026-02-20)
 
 
