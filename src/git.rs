@@ -192,7 +192,11 @@ fn run_show(
         .iter()
         .any(|arg| arg.starts_with("--pretty") || arg.starts_with("--format"));
 
-    if wants_stat_only || wants_format {
+    // `git show rev:path` prints a blob, not a commit diff. Pass through directly
+    // to avoid duplicated output from compact-show steps.
+    let wants_blob_show = args.iter().any(|arg| is_blob_show_arg(arg));
+
+    if wants_stat_only || wants_format || wants_blob_show {
         let mut cmd = git_cmd(opts);
         cmd.arg("show");
         for arg in args {
@@ -205,7 +209,11 @@ fn run_show(
             std::process::exit(output.status.code().unwrap_or(1));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        println!("{}", stdout.trim());
+        if wants_blob_show {
+            print!("{}", stdout);
+        } else {
+            println!("{}", stdout.trim());
+        }
 
         timer.track(
             &format!("git show {}", args.join(" ")),
@@ -284,6 +292,12 @@ fn run_show(
     );
 
     Ok(())
+}
+
+fn is_blob_show_arg(arg: &str) -> bool {
+    // Detect `rev:path` style arguments (e.g., HEAD:src/main.rs, develop:file.py)
+    // while ignoring flags like `--pretty=format:...`.
+    !arg.starts_with('-') && arg.contains(':')
 }
 
 pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
@@ -1823,5 +1837,14 @@ no changes added to commit (use "git add" and/or "git commit -a")
         assert!(args.contains(&"--git-dir".to_string()));
         assert!(args.contains(&"/repo/.git".to_string()));
         assert!(args.contains(&"--work-tree".to_string()));
+    }
+
+    #[test]
+    fn test_is_blob_show_arg() {
+        assert!(is_blob_show_arg("develop:modules/pairs_backtest.py"));
+        assert!(is_blob_show_arg("HEAD:src/main.rs"));
+        assert!(!is_blob_show_arg("--pretty=format:%h"));
+        assert!(!is_blob_show_arg("--format=short"));
+        assert!(!is_blob_show_arg("HEAD"));
     }
 }

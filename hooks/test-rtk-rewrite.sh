@@ -145,9 +145,9 @@ test_rewrite "env + npm run" \
   "NODE_ENV=test npm run test:e2e" \
   "NODE_ENV=test rtk npm test:e2e"
 
-test_rewrite "env + docker compose" \
+test_rewrite "env + docker compose (unsupported subcmd)" \
   "COMPOSE_PROJECT_NAME=test docker compose up -d" \
-  "COMPOSE_PROJECT_NAME=test rtk docker compose up -d"
+  ""
 
 echo ""
 
@@ -173,17 +173,25 @@ test_rewrite "npx vue-tsc --noEmit" \
   "npx vue-tsc --noEmit" \
   "rtk tsc --noEmit"
 
-test_rewrite "docker compose up -d" \
+test_rewrite "docker compose up -d (unsupported, no rewrite)" \
   "docker compose up -d" \
-  "rtk docker compose up -d"
+  ""
 
-test_rewrite "docker compose logs postgrest" \
+test_rewrite "docker compose down (unsupported, no rewrite)" \
+  "docker compose down" \
+  ""
+
+test_rewrite "docker compose logs postgrest (supported)" \
   "docker compose logs postgrest" \
   "rtk docker compose logs postgrest"
 
-test_rewrite "docker compose down" \
-  "docker compose down" \
-  "rtk docker compose down"
+test_rewrite "docker compose ps (supported)" \
+  "docker compose ps" \
+  "rtk docker compose ps"
+
+test_rewrite "docker compose build (supported)" \
+  "docker compose build" \
+  "rtk docker compose build"
 
 test_rewrite "docker run --rm postgres" \
   "docker run --rm postgres" \
@@ -193,17 +201,17 @@ test_rewrite "docker exec -it db psql" \
   "docker exec -it db psql" \
   "rtk docker exec -it db psql"
 
-test_rewrite "find (NOT rewritten — different arg format)" \
+test_rewrite "find . -name" \
   "find . -name '*.ts'" \
-  ""
+  "rtk find . -name '*.ts'"
 
-test_rewrite "tree (NOT rewritten — different arg format)" \
+test_rewrite "tree src/" \
   "tree src/" \
-  ""
+  "rtk tree src/"
 
-test_rewrite "wget (NOT rewritten — different arg format)" \
+test_rewrite "wget url" \
   "wget https://example.com/file" \
-  ""
+  "rtk wget https://example.com/file"
 
 test_rewrite "gh api repos/owner/repo" \
   "gh api repos/owner/repo" \

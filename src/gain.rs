@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use colored::Colorize; // added: terminal colors
 use serde::Serialize;
 use std::io::IsTerminal; // added: TTY detection for graceful degradation
+use std::path::PathBuf;
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -18,12 +19,21 @@ pub fn run(
     all: bool,
     format: &str,
     global: bool,
+    project: bool,
     _verbose: u8,
 ) -> Result<()> {
     let tracker = Tracker::new().context("Failed to initialize tracking database")?;
 
     let (scope, top_n) = if global {
         (QueryScope::Global, 20)
+    } else if project {
+        // --project/-p: use CWD as project scope even without project markers
+        let cwd = std::env::current_dir().context("Failed to resolve current working directory")?;
+        let canonical = cwd.canonicalize().unwrap_or(cwd);
+        (
+            QueryScope::Project(canonical.to_string_lossy().to_string()),
+            10,
+        )
     } else {
         let dir = detect_project_root();
         if dir.is_empty() {
@@ -78,7 +88,7 @@ pub fn run(
         println!("{}", "═".repeat(60));
         match &scope {
             QueryScope::Project(dir) => {
-                println!("  Path: {}", dir);
+                println!("  Path: {}", shorten_path(dir));
                 println!("  Tip: use --global for all projects");
             }
             QueryScope::Global => {
@@ -371,6 +381,29 @@ fn print_efficiency_meter(pct: f64) {
         println!("Efficiency meter: {} {}", meter.green(), colored_pct);
     } else {
         println!("Efficiency meter: {} {:.1}%", meter, pct);
+    }
+}
+
+/// Shorten long absolute paths for display (e.g. /very/long/path/to/project → /.../to/project).
+fn shorten_path(path: &str) -> String {
+    let path_buf = PathBuf::from(path);
+    let comps: Vec<String> = path_buf
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().to_string())
+        .collect();
+    if comps.len() <= 4 {
+        return path.to_string();
+    }
+    let root = comps[0].as_str();
+    if root == "/" || root.is_empty() {
+        format!("/.../{}/{}", comps[comps.len() - 2], comps[comps.len() - 1])
+    } else {
+        format!(
+            "{}/.../{}/{}",
+            root,
+            comps[comps.len() - 2],
+            comps[comps.len() - 1]
+        )
     }
 }
 

@@ -15,12 +15,16 @@ struct GoTestEvent {
     action: String,
     #[serde(rename = "Package")]
     package: Option<String>,
+    #[serde(rename = "ImportPath")]
+    import_path: Option<String>,
     #[serde(rename = "Test")]
     test: Option<String>,
     #[serde(rename = "Output")]
     output: Option<String>,
     #[serde(rename = "Elapsed")]
     elapsed: Option<f64>,
+    #[serde(rename = "FailedBuild")]
+    failed_build: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -29,6 +33,8 @@ struct PackageResult {
     fail: usize,
     skip: usize,
     failed_tests: Vec<(String, Vec<String>)>, // (test_name, output_lines)
+    build_failed: bool,
+    build_output: Vec<String>,
 }
 
 pub fn run_test(args: &[String], verbose: u8) -> Result<()> {
@@ -257,7 +263,12 @@ fn filter_go_test_json(output: &str) -> String {
             Err(_) => continue, // Skip non-JSON lines
         };
 
-        let package = event.package.unwrap_or_else(|| "unknown".to_string());
+        // Build events use ImportPath, test events use Package
+        let package = event
+            .package
+            .clone()
+            .or_else(|| event.import_path.clone())
+            .unwrap_or_else(|| "unknown".to_string());
         let pkg_result = packages.entry(package.clone()).or_default();
 
         match event.action.as_str() {
@@ -274,6 +285,10 @@ fn filter_go_test_json(output: &str) -> String {
                     let key = (package.clone(), test.clone());
                     let outputs = current_test_output.remove(&key).unwrap_or_default();
                     pkg_result.failed_tests.push((test.clone(), outputs));
+                } else if event.failed_build.is_some() {
+                    // Package-level fail with FailedBuild field = build failure
+                    pkg_result.build_failed = true;
+                    pkg_result.fail += 1;
                 }
             }
             "skip" => {
@@ -290,6 +305,18 @@ fn filter_go_test_json(output: &str) -> String {
                         .or_default()
                         .push(output_text.trim_end().to_string());
                 }
+            }
+            "build-output" => {
+                if let Some(output_text) = &event.output {
+                    let trimmed = output_text.trim_end();
+                    if !trimmed.is_empty() {
+                        pkg_result.build_output.push(trimmed.to_string());
+                    }
+                }
+            }
+            "build-fail" => {
+                pkg_result.build_failed = true;
+                pkg_result.fail += 1;
             }
             _ => {} // run, pause, cont, etc.
         }
@@ -326,6 +353,17 @@ fn filter_go_test_json(output: &str) -> String {
     // Show failed tests grouped by package
     for (package, pkg_result) in packages.iter() {
         if pkg_result.fail == 0 {
+            continue;
+        }
+
+        if pkg_result.build_failed {
+            result.push_str(&format!(
+                "\n📦 {} [build failed]\n",
+                compact_package_name(package),
+            ));
+            for line in &pkg_result.build_output {
+                result.push_str(&format!("  {}\n", truncate(line, 120)));
+            }
             continue;
         }
 
@@ -525,5 +563,29 @@ utils.go:15:5: unreachable code"#;
         assert_eq!(compact_package_name("github.com/user/repo/pkg"), "pkg");
         assert_eq!(compact_package_name("example.com/foo"), "foo");
         assert_eq!(compact_package_name("simple"), "simple");
+    }
+
+    #[test]
+    fn test_filter_go_test_build_failure() {
+        // go test -json emits build-output + build-fail when a package fails to compile
+        let lines = [
+            r##"{"Action":"build-output","ImportPath":"example.com/stream","Output":"# example.com/stream"}"##,
+            r##"{"Action":"build-output","ImportPath":"example.com/stream","Output":"handler_test.go:64:9: undefined: undefinedVariable"}"##,
+            r##"{"Action":"build-fail","ImportPath":"example.com/stream"}"##,
+            r##"{"Action":"pass","Package":"example.com/other","Test":"TestOK","Elapsed":0.1}"##,
+            r##"{"Action":"pass","Package":"example.com/other","Elapsed":0.1}"##,
+        ];
+        let output = lines.join("\n");
+
+        let result = filter_go_test_json(&output);
+        assert!(result.contains("failed"), "Should report failure: {result}");
+        assert!(
+            result.contains("build failed"),
+            "Should show build failed: {result}"
+        );
+        assert!(
+            result.contains("undefinedVariable"),
+            "Should show compiler error: {result}"
+        );
     }
 }

@@ -68,6 +68,7 @@ const PATTERNS: &[&str] = &[
     r"^(npx\s+|pnpm\s+)?prisma",
     r"^docker\s+(ps|images|logs)",
     r"^kubectl\s+(get|logs)",
+    r"^(python3?\s+-m\s+)?mypy(\s|$)",
     r"^curl\s+",
     r"^wget\s+",
 ];
@@ -212,6 +213,13 @@ const RULES: &[RtkRule] = &[
         subcmd_status: &[],
     },
     RtkRule {
+        rtk_cmd: "rtk mypy",
+        category: "Build",
+        savings_pct: 80.0,
+        subcmd_savings: &[],
+        subcmd_status: &[],
+    },
+    RtkRule {
         rtk_cmd: "rtk curl",
         category: "Network",
         savings_pct: 70.0,
@@ -272,17 +280,19 @@ const IGNORED_PREFIXES: &[&str] = &[
     "then ",
     "else\n",
     "else ",
-    "fi",
     "do\n",
     "do ",
-    "done",
     "for ",
     "while ",
     "if ",
     "case ",
 ];
 
-const IGNORED_EXACT: &[&str] = &["cd", "echo", "true", "false", "wait", "pwd", "bash", "sh"];
+const IGNORED_EXACT: &[&str] = &[
+    "cd", "echo", "true", "false", "wait", "pwd", "bash", "sh",
+    // Shell keywords that must match exactly, not as prefixes ("fi" would shadow "find")
+    "fi", "done",
+];
 
 lazy_static! {
     static ref REGEX_SET: RegexSet = RegexSet::new(PATTERNS).expect("invalid regex patterns");
@@ -582,6 +592,32 @@ mod tests {
             }
             other => panic!("expected Unsupported, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_classify_mypy() {
+        assert_eq!(
+            classify_command("mypy src/"),
+            Classification::Supported {
+                rtk_equivalent: "rtk mypy",
+                category: "Build",
+                estimated_savings_pct: 80.0,
+                status: RtkStatus::Existing,
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_python_m_mypy() {
+        assert_eq!(
+            classify_command("python3 -m mypy --strict"),
+            Classification::Supported {
+                rtk_equivalent: "rtk mypy",
+                category: "Build",
+                estimated_savings_pct: 80.0,
+                status: RtkStatus::Existing,
+            }
+        );
     }
 
     #[test]

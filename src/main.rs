@@ -26,6 +26,7 @@ mod lint_cmd;
 mod local_llm;
 mod log_cmd;
 mod ls;
+mod mypy_cmd;
 mod next_cmd;
 mod npm_cmd;
 mod parser;
@@ -363,6 +364,9 @@ enum Commands {
         /// Show global statistics (default: current project; falls back to global when no project marker is found)
         #[arg(long)]
         global: bool,
+        /// Scope statistics to the current project directory (overrides auto-detection fallback)
+        #[arg(short, long)]
+        project: bool,
     },
 
     /// Claude Code economics: spending (ccusage) vs savings (rtk) analysis
@@ -521,6 +525,13 @@ enum Commands {
         /// Command and arguments to execute
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
+    },
+
+    /// Mypy type checker with grouped error output
+    Mypy {
+        /// Mypy arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Ruff linter/formatter with compact output
@@ -1228,6 +1239,7 @@ fn main() -> Result<()> {
             all,
             format,
             global,
+            project,
         } => {
             gain::run(
                 graph,
@@ -1240,6 +1252,7 @@ fn main() -> Result<()> {
                 all,
                 &format,
                 global,
+                project,
                 cli.verbose,
             )?;
         }
@@ -1469,6 +1482,10 @@ fn main() -> Result<()> {
                     npm_cmd::run(&args, cli.verbose, cli.skip_env)?;
                 }
             }
+        }
+
+        Commands::Mypy { args } => {
+            mypy_cmd::run(&args, cli.verbose)?;
         }
 
         Commands::Ruff { args } => {
