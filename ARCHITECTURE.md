@@ -268,6 +268,7 @@ VCS               gh_cmd.rs         gh                     26-87%     ✓
 PYTHON            ruff_cmd.rs       ruff check/format      80%+       ✓
                   pytest_cmd.rs     pytest                 90%+       ✓
                   pip_cmd.rs        pip list/outdated      70-85%     ✓
+                  mypy_cmd.rs       mypy type checker      80%        ✓
 
 GO                go_cmd.rs         go test/build/vet      75-90%     ✓
                   golangci_cmd.rs   golangci-lint          85%        ✓
@@ -288,15 +289,15 @@ SHARED            utils.rs          Helpers                N/A        ✓
                   tee.rs            Full output recovery   N/A        ✓
 ```
 
-**Total: 50 modules** (32 command modules + 18 infrastructure modules)
+**Total: 51 modules** (33 command modules + 18 infrastructure modules)
 
 ### Module Count Breakdown
 
-- **Command Modules**: 31 (directly exposed to users)
+- **Command Modules**: 32 (directly exposed to users)
 - **Infrastructure Modules**: 18 (utils, filter, tracking, tee, config, init, gain, etc.)
 - **Git Commands**: 7 operations (status, diff, log, add, commit, push, branch/checkout)
 - **JS/TS Tooling**: 8 modules (modern frontend/fullstack development)
-- **Python Tooling**: 3 modules (ruff, pytest, pip)
+- **Python Tooling**: 4 modules (ruff, pytest, pip, mypy)
 - **Go Tooling**: 2 modules (go test/build/vet, golangci-lint)
 
 ---
@@ -1481,6 +1482,6 @@ When implementing a new command, consider:
 
 ---
 
-**Last Updated**: 2026-02-22
+**Last Updated**: 2026-03-02
 **Architecture Version**: 2.2
-**rtk Version**: 0.22.2
+**rtk Version**: 0.23.2
