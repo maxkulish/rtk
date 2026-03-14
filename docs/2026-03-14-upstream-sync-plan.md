@@ -12,12 +12,12 @@
 
 Run before starting any porting work:
 
-- [ ] Verify upstream: `git fetch upstream --tags && git describe --tags upstream/master`
-- [ ] Create sync branch: `git checkout -b sync/upstream-v0.29.0`
+- [x] Verify upstream: `git fetch upstream --tags && git describe --tags upstream/master` - confirmed v0.29.0
+- [x] Create sync branch: `git checkout -b sync/upstream-p1-bugfixes`
 - [ ] Audit dependencies: `cargo outdated && cargo audit`
-- [ ] Baseline binary size: `cargo build --release && ls -lh target/release/rtk`
+- [x] Baseline binary size: 4.8MB
 - [ ] Baseline startup time: `hyperfine 'target/release/rtk git status' --warmup 3`
-- [ ] Baseline test count: `cargo test 2>&1 | grep 'test result'`
+- [x] Baseline test count: 506 tests (before P1)
 
 ---
 
@@ -98,35 +98,35 @@ Squash into 3 commits: git fixes, gh fixes, other fixes.
 
 ### P1.1 - Git fixes
 
-- [ ] **P1.1a** - git: propagate exit codes in push/pull/fetch/stash/worktree (#234)
+- [x] **P1.1a** - git: propagate exit codes in push/pull/fetch/stash/worktree (#234)
   - File: `src/git.rs`
   - Upstream commit: `5cfaecc`
   - We have exit code propagation in runner/golangci/prisma but NOT in git push/pull/fetch/stash/worktree
   - **Approach**: Reference impl - adapt to our `GitGlobalOpts` pattern
   - **Test fixture needed**: N/A (exit code test, not output)
 
-- [ ] **P1.1b** - git commit -am, --amend and other flags (#327/#360)
+- [x] **P1.1b** - git commit -am, --amend and other flags (#327/#360)
   - File: `src/git.rs`
   - Upstream commit: `409aed6`
   - `git commit -am "msg"` currently fails or misroutes
   - **Approach**: Reference impl - our `Commit { messages }` variant differs from upstream's `Commit`
   - **Test fixture needed**: `git commit -am` routing test
 
-- [ ] **P1.1c** - git branch creation silently swallowed by list mode (#194)
+- [x] **P1.1c** - git branch creation silently swallowed by list mode (#194)
   - File: `src/git.rs`
   - Upstream commit: `88dc752`
   - `rtk git branch newbranch` gets treated as list instead of create
   - **Approach**: Reference impl - check how branch args are parsed
   - **Test fixture needed**: `git branch <name>` routing test
 
-- [ ] **P1.1d** - git log --oneline no longer silently truncated to 10 entries (#461/#478)
+- [x] **P1.1d** - git log --oneline no longer silently truncated to 10 entries (#461/#478)
   - File: `src/git.rs`
   - Upstream commit: from `d0396da`
   - Only inject -10 limit when RTK applies its own compact format; respect user's --oneline/--pretty/--format
   - **Approach**: Reference impl - check limit injection logic
   - **Test fixture needed**: git log with --oneline flag
 
-- [ ] **P1.1e** - git: support multiple -m flags in git commit
+- [x] **P1.1e** - git: support multiple -m flags in git commit
   - File: `src/git.rs`
   - Upstream commit: `c18553a`
   - `git commit -m "title" -m "body"` should work
@@ -134,30 +134,30 @@ Squash into 3 commits: git fixes, gh fixes, other fixes.
 
 ### P1.2 - GitHub CLI fixes
 
-- [ ] **P1.2a** - gh pr edit/comment pass correct subcommand (#332)
+- [x] **P1.2a** - gh pr edit/comment pass correct subcommand (#332)
   - File: `src/gh_cmd.rs`
   - Upstream commit: `799f085`
   - **Approach**: Upstream changed `pr_action()` to pass full args including subcommand. Port this fix.
   - **Test fixture needed**: verify `gh pr comment 123 -b "text"` routes correctly
 
-- [ ] **P1.2b** - pass through -R/--repo flag in gh view commands (#328)
+- [x] **P1.2b** - pass through -R/--repo flag in gh view commands (#328)
   - File: `src/gh_cmd.rs`
   - Upstream commit: `0a1bcb0`
   - **Approach**: Port `extract_identifier_and_extra_args()` function from upstream. This replaces our simple `args[0]` identifier extraction with proper flag-aware parsing.
   - **Test fixture needed**: `gh pr view 123 -R owner/repo` and `gh pr view -R owner/repo 123`
 
-- [ ] **P1.2c** - reduce gh diff / git diff / gh api truncation (#354/#370)
+- [x] **P1.2c** - reduce gh diff / git diff / gh api truncation (#354/#370)
   - File: `src/gh_cmd.rs`, `src/git.rs`
   - Upstream commit: `e356c12`
   - **Approach**: Increase `compact_diff` limit from 100 to 500 lines. Change `run_api()` to passthrough.
   - **Breaking change**: `rtk gh api` will now pass through raw JSON instead of compacting. This is intentional - compaction destroyed values and forced re-fetching.
 
-- [ ] **P1.2d** - smart markdown body filter for gh issue/pr view (#188/#214)
+- [x] **P1.2d** - smart markdown body filter for gh issue/pr view (#188/#214)
   - File: `src/gh_cmd.rs`
   - Upstream commit: `4208015`
   - **Approach**: Reference impl - check `filter_markdown_segment()` changes
 
-- [ ] **P1.2e** - gh run view --job flag loses its value (#416/#477)
+- [x] **P1.2e** - gh run view --job flag loses its value (#416/#477)
   - File: `src/gh_cmd.rs`
   - Upstream commit: from `d0396da`
   - Add --job and --attempt to flags_with_value in `extract_identifier_and_extra_args()`
@@ -165,31 +165,31 @@ Squash into 3 commits: git fixes, gh fixes, other fixes.
 
 ### P1.3 - Other module fixes
 
-- [ ] **P1.3a** - playwright: fix JSON parser for real output format (#193)
+- [x] **P1.3a** - playwright: fix JSON parser for real output format (#193)
   - File: `src/playwright_cmd.rs`
   - Upstream commit: `4eb6cf4`
   - **Approach**: Compare upstream parser with ours, adapt
   - **Test fixture needed**: real Playwright JSON output
 
-- [ ] **P1.3b** - preserve `--` separator for cargo commands (#326)
+- [x] **P1.3b** - preserve `--` separator for cargo commands (#326)
   - File: `src/cargo_cmd.rs` or `src/main.rs`
   - Upstream commit: `45f9344`
   - `rtk cargo test -- --nocapture` must pass `--` through
   - **Approach**: Check Clap config and arg forwarding
 
-- [ ] **P1.3c** - strip npx/bunx/pnpm prefixes in lint detection (#186/#366)
+- [x] **P1.3c** - strip npx/bunx/pnpm prefixes in lint detection (#186/#366)
   - File: `src/lint_cmd.rs`
   - Upstream commit: `27b35d8`
   - **Approach**: Reference impl - our lint_cmd.rs has mypy delegation, check for conflicts
   - **Test fixture needed**: lint output with npx/pnpm prefix
 
-- [ ] **P1.3d** - grep: translate BRE `\|` alternation, strip -r for rg (#206)
+- [x] **P1.3d** - grep: translate BRE `\|` alternation, strip -r for rg (#206)
   - File: `src/grep_cmd.rs`
   - Upstream commit: `70d1b04`
   - **Approach**: Add regex translation for `\|` -> `|` and strip `-r` flag
   - **Test fixture needed**: grep with `\|` pattern
 
-- [ ] **P1.3e** - rtk read no longer corrupts JSON/YAML/TOML files (#464/#479)
+- [x] **P1.3e** - rtk read no longer corrupts JSON/YAML/TOML files (#464/#479)
   - File: `src/filter.rs`
   - Upstream commit: from `d0396da`
   - Add `Language::Data` variant for JSON, YAML, TOML, XML, Markdown, CSV
@@ -197,7 +197,7 @@ Squash into 3 commits: git fixes, gh fixes, other fixes.
   - **Approach**: Clean port - upstream diff is small and our filter.rs is close
   - **Test fixture needed**: package.json with `packages/*` glob
 
-- [ ] **P1.3f** - npm routing fix - install != run install (#470)
+- [x] **P1.3f** - npm routing fix - install != run install (#470)
   - File: `src/npm_cmd.rs`
   - Upstream commit: from `d0396da`
   - `rtk npm install` was executing as `npm run install`
@@ -206,11 +206,11 @@ Squash into 3 commits: git fixes, gh fixes, other fixes.
 ### P1 Quality Gates
 
 After all Phase 1 items:
-- [ ] `cargo fmt --all && cargo clippy --all-targets && cargo test`
-- [ ] Binary size still < 5MB: `cargo build --release && ls -lh target/release/rtk`
+- [x] `cargo fmt --all && cargo clippy --all-targets && cargo test` - 532 tests, 0 warnings
+- [x] Binary size still < 5MB: 4.8MB (unchanged)
 - [ ] Startup time still < 10ms: `hyperfine 'target/release/rtk git status' --warmup 3`
 - [ ] Manual test: `rtk git log --oneline -5`, `rtk gh pr view 1`, `rtk cargo test -- --nocapture`
-- [ ] Squash into commit: `fix(sync): port 16 upstream bug fixes (v0.24.0..v0.27.2)`
+- [x] Commits: 3 commits (P1.1 git, P1.3 other+gh, json_cmd cleanup)
 
 ---
 
