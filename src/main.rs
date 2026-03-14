@@ -1,3 +1,4 @@
+mod aws_cmd;
 mod cargo_cmd;
 mod cc_economics;
 mod ccusage;
@@ -18,6 +19,7 @@ mod git;
 mod go_cmd;
 mod golangci_cmd;
 mod grep_cmd;
+mod gt_cmd;
 mod hook_audit_cmd;
 mod init;
 mod json_cmd;
@@ -35,6 +37,7 @@ mod playwright_cmd;
 mod pnpm_cmd;
 mod prettier_cmd;
 mod prisma_cmd;
+mod psql_cmd;
 mod pytest_cmd;
 mod read;
 mod ruff_cmd;
@@ -209,17 +212,9 @@ enum Commands {
 
     /// Find files with compact tree output
     Find {
-        /// Pattern to search (glob)
-        pattern: String,
-        /// Path to search in
-        #[arg(default_value = ".")]
-        path: String,
-        /// Maximum results to show
-        #[arg(short, long, default_value = "50")]
-        max: usize,
-        /// Filter by type: f (file), d (directory)
-        #[arg(short = 't', long, default_value = "f")]
-        file_type: String,
+        /// Arguments for find (supports both native and RTK syntax)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Ultra-condensed diff (only changed lines)
@@ -553,6 +548,28 @@ enum Commands {
         /// Pip arguments (e.g., list, outdated, install)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
+    },
+
+    /// PostgreSQL client with compact output (strip borders, compress tables)
+    Psql {
+        /// psql arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// AWS CLI with token-optimized output
+    Aws {
+        /// AWS service subcommand (e.g., sts, s3, ec2, ecs, rds, cloudformation)
+        subcommand: String,
+        /// Additional arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Graphite CLI with compact stack output
+    Gt {
+        #[command(subcommand)]
+        command: GtCommands,
     },
 
     /// Go commands with compact output
@@ -899,6 +916,70 @@ enum GoCommands {
     Other(Vec<OsString>),
 }
 
+#[derive(Subcommand)]
+enum GtCommands {
+    /// Compact stack log output
+    Log {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Compact submit output
+    Submit {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Compact sync output
+    Sync {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Compact restack output
+    Restack {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Compact create output
+    Create {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Branch info and management
+    Branch {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Passthrough: git-passthrough detection or direct gt execution
+    #[command(external_subcommand)]
+    Other(Vec<OsString>),
+}
+
+/// Split a string into shell-like tokens, respecting single and double quotes.
+/// e.g. `git log --format="%H %s"` → ["git", "log", "--format=%H %s"]
+fn shell_split(input: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let chars = input.chars();
+    let mut in_single = false;
+    let mut in_double = false;
+
+    for c in chars {
+        match c {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            ' ' | '\t' if !in_single && !in_double => {
+                if !current.is_empty() {
+                    tokens.push(std::mem::take(&mut current));
+                }
+            }
+            _ => current.push(c),
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
 fn main() -> Result<()> {
     let raw_args: Vec<OsString> = std::env::args_os().collect();
 
@@ -1067,13 +1148,8 @@ fn main() -> Result<()> {
             env_cmd::run(filter.as_deref(), show_all, cli.verbose)?;
         }
 
-        Commands::Find {
-            pattern,
-            path,
-            max,
-            file_type,
-        } => {
-            find_cmd::run(&pattern, &path, max, &file_type, cli.verbose)?;
+        Commands::Find { args } => {
+            find_cmd::run_from_args(&args, cli.verbose)?;
         }
 
         Commands::Diff { file1, file2 } => {
@@ -1494,6 +1570,38 @@ fn main() -> Result<()> {
             pip_cmd::run(&args, cli.verbose)?;
         }
 
+        Commands::Psql { args } => {
+            psql_cmd::run(&args, cli.verbose)?;
+        }
+
+        Commands::Aws { subcommand, args } => {
+            aws_cmd::run(&subcommand, &args, cli.verbose)?;
+        }
+
+        Commands::Gt { command } => match command {
+            GtCommands::Log { args } => {
+                gt_cmd::run_log(&args, cli.verbose)?;
+            }
+            GtCommands::Submit { args } => {
+                gt_cmd::run_submit(&args, cli.verbose)?;
+            }
+            GtCommands::Sync { args } => {
+                gt_cmd::run_sync(&args, cli.verbose)?;
+            }
+            GtCommands::Restack { args } => {
+                gt_cmd::run_restack(&args, cli.verbose)?;
+            }
+            GtCommands::Create { args } => {
+                gt_cmd::run_create(&args, cli.verbose)?;
+            }
+            GtCommands::Branch { args } => {
+                gt_cmd::run_branch(&args, cli.verbose)?;
+            }
+            GtCommands::Other(args) => {
+                gt_cmd::run_other(&args, cli.verbose)?;
+            }
+        },
+
         Commands::Go { command } => match command {
             GoCommands::Test { args } => {
                 go_cmd::run_test(&args, cli.verbose)?;
@@ -1518,7 +1626,9 @@ fn main() -> Result<()> {
         }
 
         Commands::Proxy { args } => {
-            use std::process::Command;
+            use std::io::{Read, Write};
+            use std::process::{Command, Stdio};
+            use std::thread;
 
             if args.is_empty() {
                 anyhow::bail!(
@@ -1528,28 +1638,99 @@ fn main() -> Result<()> {
 
             let timer = tracking::TimedExecution::start();
 
-            let cmd_name = args[0].to_string_lossy();
-            let cmd_args: Vec<String> = args[1..]
-                .iter()
-                .map(|s| s.to_string_lossy().into_owned())
-                .collect();
+            // If a single quoted arg contains spaces, split it respecting quotes (#388).
+            // e.g. rtk proxy 'head -50 file.php' → cmd=head, args=["-50", "file.php"]
+            // e.g. rtk proxy 'git log --format="%H %s"' → cmd=git, args=["log", "--format=%H %s"]
+            let (cmd_name, cmd_args): (String, Vec<String>) = if args.len() == 1 {
+                let full = args[0].to_string_lossy();
+                let parts = shell_split(&full);
+                if parts.len() > 1 {
+                    (parts[0].clone(), parts[1..].to_vec())
+                } else {
+                    (full.into_owned(), vec![])
+                }
+            } else {
+                (
+                    args[0].to_string_lossy().into_owned(),
+                    args[1..]
+                        .iter()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .collect(),
+                )
+            };
 
             if cli.verbose > 0 {
                 eprintln!("Proxy mode: {} {}", cmd_name, cmd_args.join(" "));
             }
 
-            let output = Command::new(cmd_name.as_ref())
+            let mut child = Command::new(&cmd_name)
                 .args(&cmd_args)
-                .output()
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
                 .context(format!("Failed to execute command: {}", cmd_name))?;
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let full_output = format!("{}{}", stdout, stderr);
+            let stdout_pipe = child
+                .stdout
+                .take()
+                .context("Failed to capture child stdout")?;
+            let stderr_pipe = child
+                .stderr
+                .take()
+                .context("Failed to capture child stderr")?;
 
-            // Print output
-            print!("{}", stdout);
-            eprint!("{}", stderr);
+            let stdout_handle = thread::spawn(move || -> std::io::Result<Vec<u8>> {
+                let mut reader = stdout_pipe;
+                let mut captured = Vec::new();
+                let mut buf = [0u8; 8192];
+
+                loop {
+                    let count = reader.read(&mut buf)?;
+                    if count == 0 {
+                        break;
+                    }
+                    captured.extend_from_slice(&buf[..count]);
+                    let mut out = std::io::stdout().lock();
+                    out.write_all(&buf[..count])?;
+                    out.flush()?;
+                }
+
+                Ok(captured)
+            });
+
+            let stderr_handle = thread::spawn(move || -> std::io::Result<Vec<u8>> {
+                let mut reader = stderr_pipe;
+                let mut captured = Vec::new();
+                let mut buf = [0u8; 8192];
+
+                loop {
+                    let count = reader.read(&mut buf)?;
+                    if count == 0 {
+                        break;
+                    }
+                    captured.extend_from_slice(&buf[..count]);
+                    let mut err = std::io::stderr().lock();
+                    err.write_all(&buf[..count])?;
+                    err.flush()?;
+                }
+
+                Ok(captured)
+            });
+
+            let status = child
+                .wait()
+                .context(format!("Failed waiting for command: {}", cmd_name))?;
+
+            let stdout_bytes = stdout_handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("stdout streaming thread panicked"))??;
+            let stderr_bytes = stderr_handle
+                .join()
+                .map_err(|_| anyhow::anyhow!("stderr streaming thread panicked"))??;
+
+            let stdout = String::from_utf8_lossy(&stdout_bytes);
+            let stderr = String::from_utf8_lossy(&stderr_bytes);
+            let full_output = format!("{}{}", stdout, stderr);
 
             // Track usage (input = output since no filtering)
             timer.track(
@@ -1560,8 +1741,8 @@ fn main() -> Result<()> {
             );
 
             // Exit with same code as child process
-            if !output.status.success() {
-                std::process::exit(output.status.code().unwrap_or(1));
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
             }
         }
     }
