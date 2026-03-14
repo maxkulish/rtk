@@ -612,9 +612,9 @@ enum GitCommands {
     },
     /// Commit → "ok ✓ \<hash\>"
     Commit {
-        /// Commit message (can be repeated for multi-paragraph)
-        #[arg(short, long)]
-        message: Vec<String>,
+        /// Git commit arguments (supports -m, -a, --amend, etc.)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
     /// Push → "ok ✓ \<branch\>"
     Push {
@@ -979,14 +979,8 @@ fn main() -> Result<()> {
                 GitCommands::Add { args } => {
                     git::run(git::GitCommand::Add, &args, None, cli.verbose, &opts)?;
                 }
-                GitCommands::Commit { message } => {
-                    git::run(
-                        git::GitCommand::Commit { messages: message },
-                        &[],
-                        None,
-                        cli.verbose,
-                        &opts,
-                    )?;
+                GitCommands::Commit { args } => {
+                    git::run(git::GitCommand::Commit, &args, None, cli.verbose, &opts)?;
                 }
                 GitCommands::Push { args } => {
                     git::run(git::GitCommand::Push, &args, None, cli.verbose, &opts)?;
@@ -1655,10 +1649,10 @@ mod tests {
         let cli = Cli::try_parse_from(["rtk", "git", "commit", "-m", "fix: typo"]).unwrap();
         match cli.command {
             Commands::Git {
-                command: GitCommands::Commit { message },
+                command: GitCommands::Commit { args },
                 ..
             } => {
-                assert_eq!(message, vec!["fix: typo"]);
+                assert_eq!(args, vec!["-m", "fix: typo"]);
             }
             _ => panic!("Expected Git Commit command"),
         }
@@ -1678,35 +1672,41 @@ mod tests {
         .unwrap();
         match cli.command {
             Commands::Git {
-                command: GitCommands::Commit { message },
+                command: GitCommands::Commit { args },
                 ..
             } => {
-                assert_eq!(message, vec!["feat: add support", "Body paragraph here."]);
+                assert_eq!(
+                    args,
+                    vec!["-m", "feat: add support", "-m", "Body paragraph here."]
+                );
             }
             _ => panic!("Expected Git Commit command"),
         }
     }
 
     #[test]
-    fn test_git_commit_long_flag_multiple() {
-        let cli = Cli::try_parse_from([
-            "rtk",
-            "git",
-            "commit",
-            "--message",
-            "title",
-            "--message",
-            "body",
-            "--message",
-            "footer",
-        ])
-        .unwrap();
+    fn test_git_commit_amend() {
+        let cli = Cli::try_parse_from(["rtk", "git", "commit", "--amend"]).unwrap();
         match cli.command {
             Commands::Git {
-                command: GitCommands::Commit { message },
+                command: GitCommands::Commit { args },
                 ..
             } => {
-                assert_eq!(message, vec!["title", "body", "footer"]);
+                assert_eq!(args, vec!["--amend"]);
+            }
+            _ => panic!("Expected Git Commit command"),
+        }
+    }
+
+    #[test]
+    fn test_git_commit_am() {
+        let cli = Cli::try_parse_from(["rtk", "git", "commit", "-am", "fix: bug"]).unwrap();
+        match cli.command {
+            Commands::Git {
+                command: GitCommands::Commit { args },
+                ..
+            } => {
+                assert_eq!(args, vec!["-am", "fix: bug"]);
             }
             _ => panic!("Expected Git Commit command"),
         }
