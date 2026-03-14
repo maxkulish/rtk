@@ -221,67 +221,63 @@ One commit per feature.
 
 ### P2.1 - New command modules
 
-- [ ] **P2.1a** - AWS CLI module (`src/aws_cmd.rs`)
+- [x] **P2.1a** - AWS CLI module (`src/aws_cmd.rs`)
   - Upstream commit: `b934466` (#216)
   - New file + main.rs registration
   - Token-optimized output for aws s3, ec2, ecs, etc.
   - **Security note**: Must preserve error states, permission warnings, secret exposure warnings in output. Snapshot tests must cover error cases.
 
-- [ ] **P2.1b** - psql module (`src/psql_cmd.rs`)
+- [x] **P2.1b** - psql module (`src/psql_cmd.rs`)
   - Upstream commit: `b934466` (#216)
   - Same PR as AWS, new file + main.rs registration
   - **Security note**: Must preserve connection errors, permission denied, and query errors. Never truncate error output from database operations.
 
-- [ ] **P2.1c** - Graphite CLI support (`src/gt_cmd.rs`)
+- [x] **P2.1c** - Graphite CLI support (`src/gt_cmd.rs`)
   - Upstream commit: `7fbc4ef` (#290)
   - New file + main.rs registration
 
 ### P2.2 - Existing module enhancements
 
-- [ ] **P2.2a** - `rtk rewrite` - single source of truth for hook rewrites
+- [ ] **P2.2a** - `rtk rewrite` - single source of truth for hook rewrites - **DEFERRED TO P3**
   - Upstream commit: `f447a3d` (#241)
-  - New `src/rewrite.rs` + main.rs registration
-  - Replaces shell-script-based rewrite logic with Rust
-  - **Telemetry check**: verify no telemetry calls in this module
+  - Depends on `registry::rewrite_command()` and `config::exclude_commands` (TOML infrastructure)
+  - Will be implemented as part of Phase 3
 
-- [ ] **P2.2b** - find: accept native flags (-name, -type, etc.) (#211)
+- [x] **P2.2b** - find: accept native flags (-name, -type, etc.) (#211)
   - File: `src/find_cmd.rs`
   - Upstream commit: `7ac5bc4`
 
-- [ ] **P2.2c** - Colored gain dashboard with efficiency meter (#129)
-  - File: `src/gain.rs`
-  - Upstream commit: `606b86e`
-  - Better UX for `rtk gain` output
+- [x] **P2.2c** - Colored gain dashboard with efficiency meter (#129)
+  - Already implemented in our fork
 
-- [ ] **P2.2d** - Stream proxy output while running (#268)
+- [x] **P2.2d** - Stream proxy output while running (#268)
   - File: `src/main.rs` (proxy handler)
   - Upstream commit: `884e37e`
   - Currently buffers entire output; should stream
   - **Note**: Must remain single-threaded (no async/tokio). Use `std::io::BufReader` line-by-line.
 
-- [ ] **P2.2e** - Python lint dispatcher + universal format (#100)
+- [x] **P2.2e** - Python lint dispatcher + universal format (#100)
   - File: `src/lint_cmd.rs`, `src/format_cmd.rs`
   - Upstream commit: `4cae6b6`
   - **Conflict risk**: lint_cmd.rs is heavily modified in our fork. Use reference impl approach.
 
-- [ ] **P2.2f** - curl JSON size guard (#297) + exclude_commands config (#243)
+- [x] **P2.2f** - curl JSON size guard (#297) + exclude_commands config (#243)
   - File: `src/curl_cmd.rs`, `src/config.rs`
   - Upstream commit: `a8d6106`
 
-- [ ] **P2.2g** - rtk init: upsert_rtk_block for idempotent CLAUDE.md management (#123)
-  - File: `src/init.rs`
-  - Upstream commit: `356c0d6`
+- [x] **P2.2g** - rtk init: upsert_rtk_block for idempotent CLAUDE.md management (#123)
+  - Already implemented in our fork
 
 ### P2 Quality Gates
 
 After all Phase 2 items:
-- [ ] `cargo fmt --all && cargo clippy --all-targets && cargo test`
-- [ ] Binary size still < 5MB
+- [x] `cargo fmt --all && cargo clippy --all-targets && cargo test` - 618 tests, 0 warnings
+- [x] Binary size still < 5MB: 4.9MB
 - [ ] Startup time still < 10ms
 - [ ] Manual test each new command: `rtk aws`, `rtk psql`, `rtk gt`
 - [ ] Update CLAUDE.md module table with new modules
 - [ ] Update ARCHITECTURE.md module count
-- [ ] Squash related items, use `feat(sync):` prefix
+- [x] Committed with `feat(sync):` prefix
 
 ### P2 Decision Gate (before Phase 3)
 
