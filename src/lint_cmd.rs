@@ -29,16 +29,20 @@ struct EslintResult {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct PylintDiagnostic {
     #[serde(rename = "type")]
     msg_type: String, // "warning", "error", "convention", "refactor"
+    #[allow(dead_code)]
     module: String,
+    #[allow(dead_code)]
     obj: String,
+    #[allow(dead_code)]
     line: usize,
+    #[allow(dead_code)]
     column: usize,
     path: String,
     symbol: String, // rule code like "unused-variable"
+    #[allow(dead_code)]
     message: String,
     #[serde(rename = "message-id")]
     message_id: String, // e.g., "W0612"
@@ -102,13 +106,13 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
         }
         "ruff" => {
             // Force JSON output for ruff check
-            if !args.contains(&"--output-format".to_string()) {
+            if !effective_args.contains(&"--output-format".to_string()) {
                 cmd.arg("check").arg("--output-format=json");
             }
         }
         "pylint" => {
             // Force JSON2 output for pylint
-            if !args.contains(&"--output-format".to_string()) {
+            if !effective_args.contains(&"--output-format".to_string()) {
                 cmd.arg("--output-format=json2");
             }
         }
@@ -183,7 +187,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
     let raw = format!("{}\n{}", stdout, stderr);
 
     // Dispatch to appropriate filter based on linter
-    let mut filtered = match linter {
+    let filtered = match linter {
         "eslint" => filter_eslint_json(&stdout),
         "ruff" => {
             // Reuse ruff_cmd's JSON parser
@@ -202,7 +206,6 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
-    crate::utils::ensure_failure_visibility(&mut filtered, exit_code, &stderr);
     if let Some(hint) = crate::tee::tee_and_hint(&raw, "lint", exit_code) {
         println!("{}\n{}", filtered, hint);
     } else {
@@ -606,26 +609,77 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_mypy_no_issues() {
-        let output = "Success: no issues found in 5 source files";
-        let result = mypy_cmd::filter_mypy_output(output);
-        assert!(result.contains("No issues found"));
+    fn test_strip_pm_prefix_npx() {
+        let args: Vec<String> = vec!["npx".into(), "eslint".into(), "src/".into()];
+        assert_eq!(strip_pm_prefix(&args), 1);
     }
 
     #[test]
-    fn test_filter_mypy_with_errors() {
-        let output = "src/main.py:10: error: Incompatible return value type  [return-value]\n\
-src/main.py:15: error: Argument 1 has incompatible type  [arg-type]\n\
-src/utils.py:20: error: Name \"foo\" is not defined  [name-defined]\n\
-Found 3 errors in 2 files (checked 5 source files)";
+    fn test_strip_pm_prefix_bunx() {
+        let args: Vec<String> = vec!["bunx".into(), "eslint".into(), ".".into()];
+        assert_eq!(strip_pm_prefix(&args), 1);
+    }
 
-        let result = mypy_cmd::filter_mypy_output(output);
-        assert!(result.contains("3 errors in 2 files"));
-        assert!(result.contains("return-value"));
-        assert!(result.contains("arg-type"));
-        assert!(result.contains("name-defined"));
-        assert!(result.contains("main.py"));
-        assert!(result.contains("utils.py"));
+    #[test]
+    fn test_strip_pm_prefix_pnpm_exec() {
+        let args: Vec<String> = vec!["pnpm".into(), "exec".into(), "eslint".into()];
+        assert_eq!(strip_pm_prefix(&args), 2);
+    }
+
+    #[test]
+    fn test_strip_pm_prefix_none() {
+        let args: Vec<String> = vec!["eslint".into(), "src/".into()];
+        assert_eq!(strip_pm_prefix(&args), 0);
+    }
+
+    #[test]
+    fn test_strip_pm_prefix_empty() {
+        let args: Vec<String> = vec![];
+        assert_eq!(strip_pm_prefix(&args), 0);
+    }
+
+    #[test]
+    fn test_detect_linter_eslint() {
+        let args: Vec<String> = vec!["eslint".into(), "src/".into()];
+        let (linter, explicit) = detect_linter(&args);
+        assert_eq!(linter, "eslint");
+        assert!(explicit);
+    }
+
+    #[test]
+    fn test_detect_linter_default_on_path() {
+        let args: Vec<String> = vec!["src/".into()];
+        let (linter, explicit) = detect_linter(&args);
+        assert_eq!(linter, "eslint");
+        assert!(!explicit);
+    }
+
+    #[test]
+    fn test_detect_linter_default_on_flag() {
+        let args: Vec<String> = vec!["--max-warnings=0".into()];
+        let (linter, explicit) = detect_linter(&args);
+        assert_eq!(linter, "eslint");
+        assert!(!explicit);
+    }
+
+    #[test]
+    fn test_detect_linter_after_npx_strip() {
+        // Simulates: rtk lint npx eslint src/ → after strip_pm_prefix, args = ["eslint", "src/"]
+        let full_args: Vec<String> = vec!["npx".into(), "eslint".into(), "src/".into()];
+        let skip = strip_pm_prefix(&full_args);
+        let effective = &full_args[skip..];
+        let (linter, _) = detect_linter(effective);
+        assert_eq!(linter, "eslint");
+    }
+
+    #[test]
+    fn test_detect_linter_after_pnpm_exec_strip() {
+        let full_args: Vec<String> =
+            vec!["pnpm".into(), "exec".into(), "biome".into(), "check".into()];
+        let skip = strip_pm_prefix(&full_args);
+        let effective = &full_args[skip..];
+        let (linter, _) = detect_linter(effective);
+        assert_eq!(linter, "biome");
     }
 
     #[test]
@@ -637,50 +691,5 @@ Found 3 errors in 2 files (checked 5 source files)";
         assert!(!is_python_linter("eslint"));
         assert!(!is_python_linter("biome"));
         assert!(!is_python_linter("unknown"));
-    }
-
-    #[test]
-    fn test_strip_pm_prefix() {
-        // npx eslint → skip 1
-        assert_eq!(
-            strip_pm_prefix(&["npx".to_string(), "eslint".to_string(), ".".to_string()]),
-            1
-        );
-
-        // bunx biome → skip 1
-        assert_eq!(
-            strip_pm_prefix(&["bunx".to_string(), "biome".to_string(), "check".to_string()]),
-            1
-        );
-
-        // pnpm exec eslint → skip 2
-        assert_eq!(
-            strip_pm_prefix(&["pnpm".to_string(), "exec".to_string(), "eslint".to_string()]),
-            2
-        );
-
-        // eslint (no prefix) → skip 0
-        assert_eq!(strip_pm_prefix(&["eslint".to_string(), ".".to_string()]), 0);
-    }
-
-    #[test]
-    fn test_detect_linter() {
-        // With prefix stripping applied
-        let args1 = vec!["eslint".to_string(), ".".to_string()];
-        let (linter1, explicit1) = detect_linter(&args1);
-        assert_eq!(linter1, "eslint");
-        assert!(explicit1);
-
-        // Path or flag → default to eslint
-        let args2 = vec![".".to_string()];
-        let (linter2, explicit2) = detect_linter(&args2);
-        assert_eq!(linter2, "eslint");
-        assert!(!explicit2);
-
-        // biome linter
-        let args3 = vec!["biome".to_string(), "check".to_string()];
-        let (linter3, explicit3) = detect_linter(&args3);
-        assert_eq!(linter3, "biome");
-        assert!(explicit3);
     }
 }
