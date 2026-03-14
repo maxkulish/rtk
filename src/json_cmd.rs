@@ -56,11 +56,13 @@ pub fn filter_json_string(json_str: &str, max_depth: usize) -> Result<String> {
 
 /// Compact JSON for API output: preserves actual values, truncates long strings,
 /// collapses large arrays. Unlike filter_json_string() which shows schema only.
+#[cfg(test)]
 pub fn filter_json_compact(json_str: &str, max_depth: usize) -> Result<String> {
     let value: Value = serde_json::from_str(json_str).context("Failed to parse JSON")?;
     Ok(compact_json(&value, 0, max_depth))
 }
 
+#[cfg(test)]
 fn compact_json(value: &Value, depth: usize, max_depth: usize) -> String {
     if depth > max_depth {
         return match value {

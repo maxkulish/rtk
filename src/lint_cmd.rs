@@ -49,16 +49,43 @@ fn is_python_linter(linter: &str) -> bool {
     matches!(linter, "ruff" | "pylint" | "mypy" | "flake8")
 }
 
-pub fn run(args: &[String], verbose: u8) -> Result<()> {
-    let timer = tracking::TimedExecution::start();
+/// Strip package manager prefixes (npx, bunx, pnpm, pnpm exec, yarn) from args.
+/// Returns the number of args to skip.
+fn strip_pm_prefix(args: &[String]) -> usize {
+    let pm_names = ["npx", "bunx", "pnpm", "yarn"];
+    let mut skip = 0;
+    for arg in args {
+        if pm_names.contains(&arg.as_str()) || arg == "exec" {
+            skip += 1;
+        } else {
+            break;
+        }
+    }
+    skip
+}
 
-    // Detect linter name (first arg if not a path/flag, else default to eslint)
+/// Detect the linter name from args (after stripping PM prefixes).
+/// Returns the linter name and whether it was explicitly specified.
+fn detect_linter(args: &[String]) -> (&str, bool) {
     let is_path_or_flag = args.is_empty()
         || args[0].starts_with('-')
         || args[0].contains('/')
         || args[0].contains('.');
 
-    let linter = if is_path_or_flag { "eslint" } else { &args[0] };
+    if is_path_or_flag {
+        ("eslint", false)
+    } else {
+        (&args[0], true)
+    }
+}
+
+pub fn run(args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+
+    let skip = strip_pm_prefix(args);
+    let effective_args = &args[skip..];
+
+    let (linter, explicit) = detect_linter(effective_args);
 
     // Python linters use Command::new() directly (they're on PATH via pip/pipx)
     // JS linters use package_manager_exec (npx/pnpm exec)
@@ -94,11 +121,11 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
     }
 
     // Add user arguments (skip first if it was the linter name, and skip "check" for ruff if we added it)
-    let start_idx = if is_path_or_flag {
+    let start_idx = if !explicit {
         0
-    } else if linter == "ruff" && !args.is_empty() && args[0] == "ruff" {
+    } else if linter == "ruff" && !effective_args.is_empty() && effective_args[0] == "ruff" {
         // Skip "ruff" and "check" if we already added "check"
-        if args.len() > 1 && args[1] == "check" {
+        if effective_args.len() > 1 && effective_args[1] == "check" {
             2
         } else {
             1
@@ -107,7 +134,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
         1
     };
 
-    for arg in &args[start_idx..] {
+    for arg in &effective_args[start_idx..] {
         // Skip --output-format if we already added it
         if linter == "ruff" && arg.starts_with("--output-format") {
             continue;
@@ -120,7 +147,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
 
     // Default to current directory if no path specified (for ruff/pylint/mypy/eslint)
     if matches!(linter, "ruff" | "pylint" | "mypy" | "eslint") {
-        let has_path = args
+        let has_path = effective_args
             .iter()
             .skip(start_idx)
             .any(|a| !a.starts_with('-') && !a.contains('='));
@@ -610,5 +637,50 @@ Found 3 errors in 2 files (checked 5 source files)";
         assert!(!is_python_linter("eslint"));
         assert!(!is_python_linter("biome"));
         assert!(!is_python_linter("unknown"));
+    }
+
+    #[test]
+    fn test_strip_pm_prefix() {
+        // npx eslint → skip 1
+        assert_eq!(
+            strip_pm_prefix(&["npx".to_string(), "eslint".to_string(), ".".to_string()]),
+            1
+        );
+
+        // bunx biome → skip 1
+        assert_eq!(
+            strip_pm_prefix(&["bunx".to_string(), "biome".to_string(), "check".to_string()]),
+            1
+        );
+
+        // pnpm exec eslint → skip 2
+        assert_eq!(
+            strip_pm_prefix(&["pnpm".to_string(), "exec".to_string(), "eslint".to_string()]),
+            2
+        );
+
+        // eslint (no prefix) → skip 0
+        assert_eq!(strip_pm_prefix(&["eslint".to_string(), ".".to_string()]), 0);
+    }
+
+    #[test]
+    fn test_detect_linter() {
+        // With prefix stripping applied
+        let args1 = vec!["eslint".to_string(), ".".to_string()];
+        let (linter1, explicit1) = detect_linter(&args1);
+        assert_eq!(linter1, "eslint");
+        assert!(explicit1);
+
+        // Path or flag → default to eslint
+        let args2 = vec![".".to_string()];
+        let (linter2, explicit2) = detect_linter(&args2);
+        assert_eq!(linter2, "eslint");
+        assert!(!explicit2);
+
+        // biome linter
+        let args3 = vec!["biome".to_string(), "check".to_string()];
+        let (linter3, explicit3) = detect_linter(&args3);
+        assert_eq!(linter3, "biome");
+        assert!(explicit3);
     }
 }

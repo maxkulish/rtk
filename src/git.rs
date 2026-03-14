@@ -51,7 +51,7 @@ pub enum GitCommand {
     Status,
     Show,
     Add,
-    Commit { messages: Vec<String> },
+    Commit,
     Push,
     Pull,
     Branch,
@@ -73,7 +73,7 @@ pub fn run(
         GitCommand::Status => run_status(args, verbose, opts),
         GitCommand::Show => run_show(args, max_lines, verbose, opts),
         GitCommand::Add => run_add(args, verbose, opts),
-        GitCommand::Commit { messages } => run_commit(&messages, verbose, opts),
+        GitCommand::Commit => run_commit(args, verbose, opts),
         GitCommand::Push => run_push(args, verbose, opts),
         GitCommand::Pull => run_pull(args, verbose, opts),
         GitCommand::Branch => run_branch(args, verbose, opts),
@@ -366,6 +366,28 @@ pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
     result.join("\n")
 }
 
+/// Parse user-provided limit from args (-N, -n N, --max-count=N, --max-count N)
+fn parse_user_limit(args: &[String]) -> Option<usize> {
+    for (i, arg) in args.iter().enumerate() {
+        // -N format (e.g., -10)
+        if arg.starts_with('-')
+            && arg.len() > 1
+            && arg.chars().nth(1).is_some_and(|c| c.is_ascii_digit())
+        {
+            return arg[1..].parse().ok();
+        }
+        // --max-count=N format
+        if let Some(val) = arg.strip_prefix("--max-count=") {
+            return val.parse().ok();
+        }
+        // -n N or --max-count N format
+        if (arg == "-n" || arg == "--max-count") && i + 1 < args.len() {
+            return args[i + 1].parse().ok();
+        }
+    }
+    None
+}
+
 fn run_log(
     args: &[String],
     _max_lines: Option<usize>,
@@ -382,27 +404,32 @@ fn run_log(
         arg.starts_with("--oneline") || arg.starts_with("--pretty") || arg.starts_with("--format")
     });
 
-    // Check if user provided limit flag
-    let has_limit_flag = args
-        .iter()
-        .any(|arg| arg.starts_with('-') && arg.chars().nth(1).is_some_and(|c| c.is_ascii_digit()));
+    // Check if user provided limit flag (-N, -n N, --max-count=N, --max-count N)
+    let has_limit_flag = args.iter().any(|arg| {
+        (arg.starts_with('-')
+            && arg.len() > 1
+            && arg.chars().nth(1).is_some_and(|c| c.is_ascii_digit()))
+            || arg == "-n"
+            || arg.starts_with("--max-count")
+    });
 
     // Apply RTK defaults only if user didn't specify them
     if !has_format_flag {
         cmd.args(["--pretty=format:%h %s (%ar) <%an>"]);
     }
 
-    let limit = if !has_limit_flag {
+    // Determine limit: respect user's explicit -N flag, use sensible defaults otherwise
+    let limit = if has_limit_flag {
+        // User explicitly passed -N / -n N / --max-count=N → respect their choice
+        parse_user_limit(args).unwrap_or(10)
+    } else if has_format_flag {
+        // --oneline / --pretty without -N: user wants compact output, allow more
+        cmd.arg("-50");
+        50
+    } else {
+        // No flags at all: default to 10
         cmd.arg("-10");
         10
-    } else {
-        // Extract limit from args if provided
-        args.iter()
-            .find(|arg| {
-                arg.starts_with('-') && arg.chars().nth(1).is_some_and(|c| c.is_ascii_digit())
-            })
-            .and_then(|arg| arg[1..].parse::<usize>().ok())
-            .unwrap_or(10)
     };
 
     // Only add --no-merges if user didn't explicitly request merge commits
@@ -733,30 +760,25 @@ fn run_add(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     Ok(())
 }
 
-fn build_commit_command(messages: &[String], opts: &GitGlobalOpts) -> Command {
+fn build_commit_command(args: &[String], opts: &GitGlobalOpts) -> Command {
     let mut cmd = git_cmd(opts);
     cmd.arg("commit");
-    for msg in messages {
-        cmd.args(["-m", msg]);
+    for arg in args {
+        cmd.arg(arg);
     }
     cmd
 }
 
-fn run_commit(messages: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
+fn run_commit(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
-    let original_cmd = messages
-        .iter()
-        .map(|m| format!("-m \"{}\"", m))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let original_cmd = format!("git commit {}", original_cmd);
+    let original_cmd = format!("git commit {}", args.join(" "));
 
     if verbose > 0 {
         eprintln!("{}", original_cmd);
     }
 
-    let output = build_commit_command(messages, opts)
+    let output = build_commit_command(args, opts)
         .output()
         .context("Failed to run git commit")?;
 
@@ -800,6 +822,8 @@ fn run_commit(messages: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<
         if !stdout.trim().is_empty() {
             eprintln!("{}", stdout);
         }
+        // P1.1a: Propagate exit code (git commit already handles this case)
+        std::process::exit(output.status.code().unwrap_or(1));
     }
 
     Ok(())
@@ -861,6 +885,8 @@ fn run_push(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
         if !stdout.trim().is_empty() {
             eprintln!("{}", stdout);
         }
+        // P1.1a: Propagate exit code
+        std::process::exit(output.status.code().unwrap_or(1));
     }
 
     Ok(())
@@ -946,6 +972,8 @@ fn run_pull(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
         if !stdout.trim().is_empty() {
             eprintln!("{}", stdout);
         }
+        // P1.1a: Propagate exit code
+        std::process::exit(output.status.code().unwrap_or(1));
     }
 
     Ok(())
@@ -1124,7 +1152,8 @@ fn run_fetch(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
         if !stderr.trim().is_empty() {
             eprintln!("{}", stderr);
         }
-        return Ok(());
+        // P1.1a: Propagate exit code
+        std::process::exit(output.status.code().unwrap_or(1));
     }
 
     // Count new refs from stderr (git fetch outputs to stderr)
@@ -1229,6 +1258,11 @@ fn run_stash(
                 &combined,
                 &msg,
             );
+
+            // P1.1a: Propagate exit code
+            if !output.status.success() {
+                std::process::exit(output.status.code().unwrap_or(1));
+            }
         }
         _ => {
             // Default: git stash (push)
@@ -1261,6 +1295,11 @@ fn run_stash(
             };
 
             timer.track("git stash", "rtk git stash", &combined, &msg);
+
+            // P1.1a: Propagate exit code
+            if !output.status.success() {
+                std::process::exit(output.status.code().unwrap_or(1));
+            }
         }
     }
 
@@ -1331,6 +1370,8 @@ fn run_worktree(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()
             if !stderr.trim().is_empty() {
                 eprintln!("{}", stderr);
             }
+            // P1.1a: Propagate exit code
+            std::process::exit(output.status.code().unwrap_or(1));
         }
         return Ok(());
     }
@@ -1684,28 +1725,30 @@ no changes added to commit (use "git add" and/or "git commit -a")
 
     #[test]
     fn test_commit_single_message() {
-        let messages = vec!["fix: typo".to_string()];
-        let cmd = build_commit_command(&messages, &GitGlobalOpts::default());
-        let args: Vec<_> = cmd
+        let args = vec!["-m".to_string(), "fix: typo".to_string()];
+        let cmd = build_commit_command(&args, &GitGlobalOpts::default());
+        let cmd_args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
-        assert_eq!(args, vec!["commit", "-m", "fix: typo"]);
+        assert_eq!(cmd_args, vec!["commit", "-m", "fix: typo"]);
     }
 
     #[test]
     fn test_commit_multiple_messages() {
-        let messages = vec![
+        let args = vec![
+            "-m".to_string(),
             "feat: add multi-paragraph support".to_string(),
+            "-m".to_string(),
             "This allows git commit -m \"title\" -m \"body\".".to_string(),
         ];
-        let cmd = build_commit_command(&messages, &GitGlobalOpts::default());
-        let args: Vec<_> = cmd
+        let cmd = build_commit_command(&args, &GitGlobalOpts::default());
+        let cmd_args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
         assert_eq!(
-            args,
+            cmd_args,
             vec![
                 "commit",
                 "-m",
@@ -1717,28 +1760,42 @@ no changes added to commit (use "git add" and/or "git commit -a")
     }
 
     #[test]
-    fn test_commit_three_messages() {
-        let messages = vec![
-            "title".to_string(),
-            "body".to_string(),
-            "footer: refs #202".to_string(),
+    fn test_commit_amend() {
+        let args = vec!["--amend".to_string()];
+        let cmd = build_commit_command(&args, &GitGlobalOpts::default());
+        let cmd_args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(cmd_args, vec!["commit", "--amend"]);
+    }
+
+    #[test]
+    fn test_commit_am_flag() {
+        let args = vec!["-am".to_string(), "fix: bug".to_string()];
+        let cmd = build_commit_command(&args, &GitGlobalOpts::default());
+        let cmd_args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(cmd_args, vec!["commit", "-am", "fix: bug"]);
+    }
+
+    #[test]
+    fn test_commit_allow_empty() {
+        let args = vec![
+            "-m".to_string(),
+            "empty commit".to_string(),
+            "--allow-empty".to_string(),
         ];
-        let cmd = build_commit_command(&messages, &GitGlobalOpts::default());
-        let args: Vec<_> = cmd
+        let cmd = build_commit_command(&args, &GitGlobalOpts::default());
+        let cmd_args: Vec<_> = cmd
             .get_args()
             .map(|a| a.to_string_lossy().to_string())
             .collect();
         assert_eq!(
-            args,
-            vec![
-                "commit",
-                "-m",
-                "title",
-                "-m",
-                "body",
-                "-m",
-                "footer: refs #202"
-            ]
+            cmd_args,
+            vec!["commit", "-m", "empty commit", "--allow-empty"]
         );
     }
 
@@ -1846,5 +1903,52 @@ no changes added to commit (use "git add" and/or "git commit -a")
         assert!(!is_blob_show_arg("--pretty=format:%h"));
         assert!(!is_blob_show_arg("--format=short"));
         assert!(!is_blob_show_arg("HEAD"));
+    }
+
+    #[test]
+    fn test_parse_user_limit_dash_n() {
+        assert_eq!(parse_user_limit(&["-10".to_string()]), Some(10));
+        assert_eq!(parse_user_limit(&["-5".to_string()]), Some(5));
+        assert_eq!(parse_user_limit(&["-100".to_string()]), Some(100));
+    }
+
+    #[test]
+    fn test_parse_user_limit_n_space() {
+        assert_eq!(
+            parse_user_limit(&["-n".to_string(), "20".to_string()]),
+            Some(20)
+        );
+    }
+
+    #[test]
+    fn test_parse_user_limit_max_count_equals() {
+        assert_eq!(parse_user_limit(&["--max-count=50".to_string()]), Some(50));
+    }
+
+    #[test]
+    fn test_parse_user_limit_max_count_space() {
+        assert_eq!(
+            parse_user_limit(&["--max-count".to_string(), "30".to_string()]),
+            Some(30)
+        );
+    }
+
+    #[test]
+    fn test_parse_user_limit_none() {
+        assert_eq!(parse_user_limit(&["--oneline".to_string()]), None);
+        assert_eq!(parse_user_limit(&["--graph".to_string()]), None);
+        assert_eq!(parse_user_limit(&[]), None);
+    }
+
+    #[test]
+    fn test_parse_user_limit_with_other_args() {
+        assert_eq!(
+            parse_user_limit(&[
+                "--graph".to_string(),
+                "-20".to_string(),
+                "--oneline".to_string()
+            ]),
+            Some(20)
+        );
     }
 }
