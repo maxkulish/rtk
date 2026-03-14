@@ -50,6 +50,7 @@ pub enum Language {
     Java,
     Ruby,
     Shell,
+    Data,
     Unknown,
 }
 
@@ -66,6 +67,9 @@ impl Language {
             "java" => Language::Java,
             "rb" => Language::Ruby,
             "sh" | "bash" | "zsh" => Language::Shell,
+            "json" | "jsonc" | "json5" | "yaml" | "yml" | "toml" | "xml" | "html" | "htm"
+            | "css" | "scss" | "svg" | "md" | "markdown" | "txt" | "csv" | "tsv" | "env"
+            | "ini" | "cfg" | "conf" | "lock" => Language::Data,
             _ => Language::Unknown,
         }
     }
@@ -107,6 +111,13 @@ impl Language {
             },
             Language::Shell => CommentPatterns {
                 line: Some("#"),
+                block_start: None,
+                block_end: None,
+                doc_line: None,
+                doc_block_start: None,
+            },
+            Language::Data => CommentPatterns {
+                line: None,
                 block_start: None,
                 block_end: None,
                 doc_line: None,
@@ -387,6 +398,10 @@ mod tests {
         assert_eq!(Language::from_extension("rs"), Language::Rust);
         assert_eq!(Language::from_extension("py"), Language::Python);
         assert_eq!(Language::from_extension("js"), Language::JavaScript);
+        assert_eq!(Language::from_extension("json"), Language::Data);
+        assert_eq!(Language::from_extension("yaml"), Language::Data);
+        assert_eq!(Language::from_extension("toml"), Language::Data);
+        assert_eq!(Language::from_extension("md"), Language::Data);
     }
 
     #[test]
@@ -401,5 +416,27 @@ fn main() {
         let result = filter.filter(code, &Language::Rust);
         assert!(!result.contains("// This is a comment"));
         assert!(result.contains("fn main()"));
+    }
+
+    #[test]
+    fn test_data_language_no_comment_stripping() {
+        // Language::Data should have NO comment patterns (all None)
+        let patterns = Language::Data.comment_patterns();
+        assert!(patterns.line.is_none());
+        assert!(patterns.block_start.is_none());
+        assert!(patterns.block_end.is_none());
+
+        // This prevents "packages/*" in package.json from being treated as "/*" block comment
+        let json = r#"{
+  "name": "my-package",
+  "workspaces": [
+    "packages/*"
+  ]
+}"#;
+        let filter = MinimalFilter;
+        let result = filter.filter(json, &Language::Data);
+        // Should preserve the line with packages/* (not strip it as a comment)
+        assert!(result.contains("packages/*"));
+        assert!(result.contains("workspaces"));
     }
 }
