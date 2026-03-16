@@ -40,10 +40,12 @@ mod prisma_cmd;
 mod psql_cmd;
 mod pytest_cmd;
 mod read;
+mod rewrite_cmd;
 mod ruff_cmd;
 mod runner;
 mod summary;
 mod tee;
+mod toml_filter;
 mod tracking;
 mod tree;
 mod tsc_cmd;
@@ -488,6 +490,20 @@ enum Commands {
         /// Output format: text, json
         #[arg(short, long, default_value = "text")]
         format: String,
+    },
+
+    /// Rewrite a command to use RTK (for shell hooks)
+    Rewrite {
+        /// Command to potentially rewrite
+        #[arg(required = true)]
+        command: String,
+    },
+
+    /// Verify TOML filter tests
+    Verify {
+        /// Filter name to test (optional, tests all if not provided)
+        #[arg(short, long)]
+        filter: Option<String>,
     },
 
     /// Learn CLI corrections from Claude Code error history
@@ -1456,6 +1472,39 @@ fn main() -> Result<()> {
             discover::run(project.as_deref(), all, since, limit, &format, cli.verbose)?;
         }
 
+        Commands::Rewrite { command } => {
+            rewrite_cmd::run(&command)?;
+        }
+
+        Commands::Verify { filter } => {
+            let results = toml_filter::run_filter_tests(filter.as_deref());
+            let passed = results.outcomes.iter().filter(|o| o.passed).count();
+            let total = results.outcomes.len();
+
+            for outcome in &results.outcomes {
+                if outcome.passed {
+                    println!("✓ {}/{}", outcome.filter_name, outcome.test_name);
+                } else {
+                    println!("✗ {}/{}", outcome.filter_name, outcome.test_name);
+                    println!("  Expected: {}", outcome.expected);
+                    println!("  Actual:   {}", outcome.actual);
+                }
+            }
+
+            if !results.filters_without_tests.is_empty() {
+                println!("\nFilters without tests:");
+                for name in &results.filters_without_tests {
+                    println!("  - {}", name);
+                }
+            }
+
+            println!("\nResults: {}/{} passed", passed, total);
+
+            if passed < total {
+                std::process::exit(1);
+            }
+        }
+
         Commands::Learn {
             project,
             all,
@@ -1800,23 +1849,87 @@ fn run_fallback(args: &[OsString]) -> Result<()> {
     let cmd_args = &args[1..];
     let display = tracking::args_display(args);
 
-    eprintln!("[rtk] fallback: running '{}' directly", display);
-
     let timer = tracking::TimedExecution::start();
 
-    let status = std::process::Command::new(cmd_name)
-        .args(cmd_args)
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .stderr(std::process::Stdio::inherit())
-        .status()
-        .with_context(|| format!("Failed to execute: {}", cmd_name.to_string_lossy()))?;
+    // Build lookup command (use basename for path-based commands like /usr/bin/make)
+    let lookup_cmd = {
+        let base = std::path::Path::new(&args[0])
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| args[0].to_string_lossy().into_owned());
 
-    timer.track_passthrough(&display, &format!("rtk {} (fallback)", display));
+        let mut parts = vec![base];
+        parts.extend(args[1..].iter().map(|s| s.to_string_lossy().into_owned()));
+        parts.join(" ")
+    };
 
-    if !status.success() {
-        std::process::exit(status.code().unwrap_or(1));
+    // Check for TOML filter match (skip if RTK_NO_TOML=1)
+    let toml_match = if std::env::var("RTK_NO_TOML").ok().as_deref() == Some("1") {
+        None
+    } else {
+        toml_filter::find_matching_filter(&lookup_cmd)
+    };
+
+    if let Some(filter) = toml_match {
+        // TOML filter matched - capture stdout and filter it
+        if std::env::var("RTK_TOML_DEBUG").is_ok() {
+            eprintln!("[rtk:toml] filter matched: {}", filter.name);
+        }
+
+        let result = std::process::Command::new(cmd_name)
+            .args(cmd_args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::inherit())
+            .output()
+            .with_context(|| format!("Failed to execute: {}", cmd_name.to_string_lossy()))?;
+
+        let raw_stdout = String::from_utf8_lossy(&result.stdout);
+        let filtered = toml_filter::apply_filter(filter, &raw_stdout);
+
+        // Print filtered output
+        print!("{}", filtered);
+
+        // Tee raw output on failure
+        if !result.status.success() {
+            if let Some(hint) =
+                tee::tee_and_hint(&raw_stdout, &display, result.status.code().unwrap_or(1))
+            {
+                eprintln!("{}", hint);
+            }
+        }
+
+        // Track metrics
+        timer.track(
+            &display,
+            &format!("rtk {} (toml)", display),
+            &raw_stdout,
+            &filtered,
+        );
+
+        // Propagate exit code
+        if !result.status.success() {
+            std::process::exit(result.status.code().unwrap_or(1));
+        }
+    } else {
+        // No TOML match - original passthrough behavior
+        eprintln!("[rtk] fallback: running '{}' directly", display);
+
+        let status = std::process::Command::new(cmd_name)
+            .args(cmd_args)
+            .stdin(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .stderr(std::process::Stdio::inherit())
+            .status()
+            .with_context(|| format!("Failed to execute: {}", cmd_name.to_string_lossy()))?;
+
+        timer.track_passthrough(&display, &format!("rtk {} (fallback)", display));
+
+        if !status.success() {
+            std::process::exit(status.code().unwrap_or(1));
+        }
     }
+
     Ok(())
 }
 

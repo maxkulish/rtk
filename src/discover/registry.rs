@@ -411,6 +411,68 @@ fn extract_base_command(cmd: &str) -> &str {
     }
 }
 
+/// Rewrite a command to use RTK if it's supported.
+/// Returns Some(rewritten) if the command should be rewritten, None otherwise.
+/// Respects excluded commands from config.
+pub fn rewrite_command(cmd: &str, excluded: &[String]) -> Option<String> {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // Check if command is excluded
+    for excl in excluded {
+        if trimmed.starts_with(excl.as_str()) {
+            return None;
+        }
+    }
+
+    // Classify the command
+    match classify_command(trimmed) {
+        Classification::Supported { rtk_equivalent, .. } => {
+            // Extract the base command to replace
+            let stripped = ENV_PREFIX.replace(trimmed, "");
+            let cmd_clean = stripped.trim();
+
+            // Find the command part to replace
+            // Simple approach: replace the first word with rtk equivalent
+            let parts: Vec<&str> = cmd_clean.splitn(2, char::is_whitespace).collect();
+            if parts.is_empty() {
+                return None;
+            }
+
+            // Handle compound commands (npx tsc, pnpm vitest, etc.)
+            let rewritten = if cmd_clean.starts_with("npx ") || cmd_clean.starts_with("pnpm ") {
+                // For npx/pnpm commands, strip the package manager prefix and tool name
+                if parts.len() >= 2 {
+                    // parts[1] is "tsc --noEmit" - we need to split again to skip "tsc"
+                    let tool_and_args: Vec<&str> =
+                        parts[1].splitn(2, char::is_whitespace).collect();
+                    if tool_and_args.len() > 1 {
+                        // Has args after the tool name
+                        format!("{} {}", rtk_equivalent, tool_and_args[1])
+                    } else {
+                        // No args after the tool name
+                        rtk_equivalent.to_string()
+                    }
+                } else {
+                    rtk_equivalent.to_string()
+                }
+            } else {
+                // For regular commands, keep everything after the base command
+                if parts.len() > 1 {
+                    format!("{} {}", rtk_equivalent, parts[1])
+                } else {
+                    rtk_equivalent.to_string()
+                }
+            };
+
+            Some(rewritten)
+        }
+        Classification::Unsupported { .. } | Classification::Ignored => None,
+    }
+}
+
 /// Split a command chain on `&&`, `||`, `;` outside quotes.
 /// For pipes `|`, only keep the first command.
 /// Lines with `<<` (heredoc) or `$((` are returned whole.
@@ -767,5 +829,86 @@ mod tests {
     fn test_split_heredoc_no_split() {
         let cmd = "cat <<'EOF'\nhello && world\nEOF";
         assert_eq!(split_command_chain(cmd), vec![cmd]);
+    }
+
+    #[test]
+    fn test_rewrite_git_status() {
+        assert_eq!(
+            rewrite_command("git status", &[]),
+            Some("rtk git status".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_git_with_args() {
+        assert_eq!(
+            rewrite_command("git log --oneline -10", &[]),
+            Some("rtk git log --oneline -10".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_cargo_test() {
+        assert_eq!(
+            rewrite_command("cargo test", &[]),
+            Some("rtk cargo test".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_npx_tsc() {
+        assert_eq!(
+            rewrite_command("npx tsc --noEmit", &[]),
+            Some("rtk tsc --noEmit".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_pnpm_vitest() {
+        assert_eq!(
+            rewrite_command("pnpm vitest run", &[]),
+            Some("rtk vitest run".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_excluded_git() {
+        assert_eq!(rewrite_command("git status", &["git".to_string()]), None);
+    }
+
+    #[test]
+    fn test_rewrite_excluded_cargo() {
+        assert_eq!(rewrite_command("cargo test", &["cargo".to_string()]), None);
+    }
+
+    #[test]
+    fn test_rewrite_unsupported_terraform() {
+        assert_eq!(rewrite_command("terraform plan", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_ignored_echo() {
+        assert_eq!(rewrite_command("echo hello", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_already_rtk() {
+        assert_eq!(rewrite_command("rtk git status", &[]), None);
+    }
+
+    #[test]
+    fn test_rewrite_with_env_prefix() {
+        assert_eq!(
+            rewrite_command("GIT_SSH_COMMAND=ssh git push", &[]),
+            Some("rtk git push".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_with_sudo() {
+        assert_eq!(
+            rewrite_command("sudo docker ps", &[]),
+            Some("rtk docker ps".to_string())
+        );
     }
 }
