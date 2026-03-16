@@ -12,6 +12,8 @@ pub struct Config {
     pub filters: FilterConfig,
     #[serde(default)]
     pub tee: crate::tee::TeeConfig,
+    #[serde(default)]
+    pub hooks: HooksConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -71,6 +73,12 @@ impl Default for FilterConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct HooksConfig {
+    #[serde(default)]
+    pub exclude_commands: Vec<String>,
+}
+
 impl Config {
     pub fn load() -> Result<Self> {
         let path = get_config_path()?;
@@ -124,4 +132,34 @@ pub fn show_config() -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hooks_config_default() {
+        let config = HooksConfig::default();
+        assert!(config.exclude_commands.is_empty());
+    }
+
+    #[test]
+    fn test_hooks_config_deserialize() {
+        let toml = r#"
+            exclude_commands = ["git", "npm"]
+        "#;
+        let config: HooksConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.exclude_commands, vec!["git", "npm"]);
+    }
+
+    #[test]
+    fn test_hooks_config_in_full_config() {
+        let toml = r#"
+            [hooks]
+            exclude_commands = ["cargo", "pnpm"]
+        "#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.hooks.exclude_commands, vec!["cargo", "pnpm"]);
+    }
 }
