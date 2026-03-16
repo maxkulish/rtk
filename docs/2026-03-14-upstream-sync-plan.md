@@ -327,7 +327,7 @@ Port from upstream in order: Part 1 -> Part 2 -> Part 3.
 
 ### P3.1 - TOML Part 1: Filter DSL engine + 14 built-in filters (#349)
 
-- [ ] **P3.1a** - Core TOML filter engine (`src/toml_filter.rs`)
+- [x] **P3.1a** - Core TOML filter engine (`src/toml_filter.rs`)
   - Upstream commit: `adda253`
   - Single file module (upstream uses `src/toml_filter.rs`, not a directory)
   - 8-stage pipeline:
@@ -342,17 +342,17 @@ Port from upstream in order: Part 1 -> Part 2 -> Part 3.
   - Uses `lazy_static` for compiled regex (matches our pattern)
   - **Telemetry scrub**: remove any `telemetry::` calls
 
-- [ ] **P3.1b** - build.rs for TOML concatenation
+- [x] **P3.1b** - build.rs for TOML concatenation
   - Copy upstream `build.rs`
   - Validates TOML at compile time, catches errors early
   - Detects duplicate filter names across files
 
-- [ ] **P3.1c** - 14 built-in TOML filter files (`src/filters/`)
+- [x] **P3.1c** - 47 built-in TOML filter files (`src/filters/`)
   - Copy from upstream: terraform-plan, make, ansible-playbook, helm, gcloud,
     iptables, fail2ban-client, sops, pre-commit, quarto, pio, shopify, trunk, mix
   - Each `.toml` file ~200-500 bytes
 
-- [ ] **P3.1d** - Integration with main.rs routing
+- [x] **P3.1d** - Integration with main.rs routing
   - TOML-filtered commands route through engine
   - Fallback to raw command if TOML filter fails
   - Token tracking integration
@@ -360,35 +360,35 @@ Port from upstream in order: Part 1 -> Part 2 -> Part 3.
 
 ### P3.2 - TOML Part 2: User config + 4 more filters (#351)
 
-- [ ] **P3.2a** - User-global TOML config
+- [x] **P3.2a** - User-global TOML config
   - Upstream commit: `926e6a0`
   - Users can create custom TOML filters in `~/.config/rtk/filters.toml`
   - Project-local in `.rtk/filters.toml`
   - Shadow warning when user filter overrides built-in
 
-- [ ] **P3.2b** - rtk init templates for TOML filters
+- [x] **P3.2b** - rtk init templates for TOML filters
   - Generate commented starter TOML filter template
 
-- [ ] **P3.2c** - 4 additional built-in filters
+- [x] **P3.2c** - 4 additional built-in filters
   - tofu-plan, tofu-init, tofu-validate, tofu-fmt (OpenTofu variants)
 
 ### P3.3 - TOML Part 3: 15 more built-in filters (#386)
 
-- [ ] **P3.3a** - 15 additional filter files
+- [x] **P3.3a** - 15 additional filter files
   - Upstream commit: `b71a8d2`
   - ping, rsync, dotnet-build, swift-build, shellcheck, hadolint, poetry-install,
     composer-install, brew-install, df, ps, systemctl-status, yamllint, markdownlint, uv-sync
 
 ### P3.4 - Rewrite engine improvements (from v0.29.0)
 
-- [ ] **P3.4a** - Rewrite engine with shell_split + rewrite_segment
+- [x] **P3.4a** - Rewrite engine with shell_split + rewrite_segment
   - Upstream commit: `c1de10d` (#539)
   - Depends on TOML DSL being in place
   - `rtk rewrite` command uses TOML filter registry for routing
   - OpenCode plugin support (`rtk init -g --opencode`)
   - **Telemetry scrub**: verify no telemetry in rewrite paths
 
-- [ ] **P3.4b** - Additional v0.29.0 items from develop merge (#499)
+- [x] **P3.4b** - Additional v0.29.0 items from develop merge (#499)
   - proxy quote-aware split with shell_split()
   - 11 new TOML filters (xcodebuild, jq, basedpyright, ty, skopeo,
     stat, biome, oxlint, jj, ssh, gcc)
@@ -398,14 +398,11 @@ Port from upstream in order: Part 1 -> Part 2 -> Part 3.
 ### P3 Quality Gates
 
 After Phase 3:
-- [ ] `cargo fmt --all && cargo clippy --all-targets && cargo test`
-- [ ] **Binary size < 5MB**: `cargo build --release && ls -lh target/release/rtk`
-  - If over budget: try `opt-level = "z"` or reduce embedded TOML count
+- [x] `cargo fmt --all && cargo clippy --all-targets && cargo test` - 688 tests, 0 warnings
+- [x] **Binary size < 5MB**: 4.0MB (opt-level="s", down from 5.1MB with opt-level=3)
 - [ ] **Startup time < 10ms**: `hyperfine 'target/release/rtk git status' --warmup 3`
-  - git status does NOT use TOML filters, so should be unaffected
-  - Also test: `hyperfine 'target/release/rtk terraform plan' --warmup 3` (TOML path)
 - [ ] **TOML filter test**: `RTK_TOML_DEBUG=1 rtk make` to verify filter matching
-- [ ] All inline TOML tests pass (filters have `[[tests.<name>]]` sections)
+- [ ] All inline TOML tests pass (`rtk verify` showed 104/111 - 7 failures to investigate)
 - [ ] Update CLAUDE.md, ARCHITECTURE.md with TOML filter architecture
 - [ ] Update README.md with supported commands list
 
