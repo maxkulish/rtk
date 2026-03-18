@@ -1,0 +1,42 @@
+[filters.terragrunt-plan]
+description = "Compact Terragrunt plan output"
+match_command = "^terragrunt\\s+plan(\\s|$)"
+strip_ansi = true
+replace = [
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (STDOUT|STDERR|ERROR)\\s+terraform: ", replacement = "" },
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (ERROR)\\s+", replacement = "" },
+]
+strip_lines_matching = [
+  "^Refreshing state",
+  "^Initializing",
+  "^Acquiring state lock",
+  "^Releasing state lock",
+  "^\\s*#.*unchanged",
+  "^\\s*$",
+]
+max_lines = 80
+on_empty = "terragrunt plan: no changes detected"
+
+[[tests.terragrunt-plan]]
+name = "strips refresh noise and timestamps, keeps plan"
+input = """
+22:36:01.489 STDOUT terraform: Initializing the backend...
+22:36:02.100 STDOUT terraform: Refreshing state... [id=vpc-abc123]
+22:36:03.200 STDOUT terraform: Refreshing state... [id=sg-def456]
+
+22:36:04.300 STDOUT terraform: Terraform will perform the following actions:
+22:36:04.301 STDOUT terraform:   # aws_instance.web will be created
+22:36:04.302 STDOUT terraform:   + resource "aws_instance" "web" {}
+
+22:36:04.400 STDOUT terraform: Plan: 1 to add, 0 to change, 0 to destroy.
+"""
+expected = "Terraform will perform the following actions:\n  # aws_instance.web will be created\n  + resource \"aws_instance\" \"web\" {}\nPlan: 1 to add, 0 to change, 0 to destroy."
+
+[[tests.terragrunt-plan]]
+name = "on_empty when only noise"
+input = """
+22:36:01.489 STDOUT terraform: Initializing the backend...
+22:36:02.100 STDOUT terraform: Refreshing state... [id=vpc-abc123]
+
+"""
+expected = "terragrunt plan: no changes detected"

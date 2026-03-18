@@ -1,0 +1,40 @@
+[filters.terragrunt-apply]
+description = "Compact Terragrunt apply output"
+match_command = "^terragrunt\\s+apply(\\s|$)"
+strip_ansi = true
+replace = [
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (STDOUT|STDERR|ERROR)\\s+terraform: ", replacement = "" },
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (ERROR)\\s+", replacement = "" },
+]
+strip_lines_matching = [
+  "^Refreshing state",
+  "^Initializing",
+  "^Acquiring state lock",
+  "^Releasing state lock",
+  "^\\s*#.*unchanged",
+  "^\\s*$",
+]
+max_lines = 80
+on_empty = "terragrunt apply: ok"
+
+[[tests.terragrunt-apply]]
+name = "strips noise, keeps apply summary"
+input = """
+22:36:01.489 STDOUT terraform: Initializing the backend...
+22:36:02.100 STDOUT terraform: Refreshing state... [id=vpc-abc123]
+
+22:36:04.300 STDOUT terraform: aws_instance.web: Creating...
+22:36:34.300 STDOUT terraform: aws_instance.web: Creation complete after 32s [id=i-abc123]
+
+22:36:35.100 STDOUT terraform: Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
+"""
+expected = "aws_instance.web: Creating...\naws_instance.web: Creation complete after 32s [id=i-abc123]\nApply complete! Resources: 1 added, 0 changed, 0 destroyed."
+
+[[tests.terragrunt-apply]]
+name = "preserves errors"
+input = """
+22:36:06.521 STDERR terraform: Error: creating EC2 Instance: UnauthorizedAccess
+22:36:06.523 ERROR  error occurred:
+22:36:06.524 ERROR  * exit status 1
+"""
+expected = "Error: creating EC2 Instance: UnauthorizedAccess\nerror occurred:\n* exit status 1"

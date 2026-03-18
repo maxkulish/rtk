@@ -1,0 +1,20 @@
+[filters.terragrunt-output]
+description = "Compact Terragrunt output"
+match_command = "^terragrunt\\s+output(\\s|$)"
+strip_ansi = true
+replace = [
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (STDOUT|STDERR)\\s+terraform: ", replacement = "" },
+]
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 40
+
+[[tests.terragrunt-output]]
+name = "strips timestamps, preserves values"
+input = """
+22:36:06.520 STDOUT terraform: vpc_id = "vpc-abc123"
+
+22:36:06.521 STDOUT terraform: instance_ip = "10.0.1.5"
+"""
+expected = "vpc_id = \"vpc-abc123\"\ninstance_ip = \"10.0.1.5\""

@@ -1,0 +1,39 @@
+[filters.terragrunt-init]
+description = "Compact Terragrunt init output"
+match_command = "^terragrunt\\s+init(\\s|$)"
+strip_ansi = true
+replace = [
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (STDOUT|STDERR|ERROR)\\s+terraform: ", replacement = "" },
+  { pattern = "^\\d{2}:\\d{2}:\\d{2}\\.\\d+ (ERROR)\\s+", replacement = "" },
+]
+strip_lines_matching = [
+  "^Initializing",
+  "^- Downloading",
+  "^- Installing",
+  "^- Using previously-installed",
+  "^\\s*$",
+]
+max_lines = 40
+on_empty = "terragrunt init: ok"
+
+[[tests.terragrunt-init]]
+name = "strips timestamp prefixes and init noise"
+input = """
+22:36:01.489 STDOUT terraform: Initializing the backend...
+22:36:02.100 STDOUT terraform: Initializing provider plugins...
+22:36:03.200 STDOUT terraform: - Downloading hashicorp/aws 5.0.0...
+22:36:04.300 STDOUT terraform: - Installing hashicorp/aws 5.0.0...
+
+22:36:06.520 STDOUT terraform: Terraform has been successfully initialized!
+"""
+expected = "Terraform has been successfully initialized!"
+
+[[tests.terragrunt-init]]
+name = "preserves errors with cleaned prefixes"
+input = """
+22:36:01.489 STDOUT terraform: Initializing the backend...
+22:36:06.521 STDERR terraform: Error: No valid credential sources found
+22:36:06.521 STDERR terraform: Please see https://developer.hashicorp.com/terraform/language/backend/s3
+22:36:06.523 ERROR  error occurred:
+"""
+expected = "Error: No valid credential sources found\nPlease see https://developer.hashicorp.com/terraform/language/backend/s3\nerror occurred:"
