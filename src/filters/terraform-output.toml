@@ -1,0 +1,27 @@
+[filters.terraform-output]
+description = "Compact Terraform output"
+match_command = "^terraform\\s+output(\\s|$)"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 40
+
+[[tests.terraform-output]]
+name = "key-value output preserved"
+input = """
+vpc_id = "vpc-abc123"
+
+subnet_ids = [
+  "subnet-111",
+  "subnet-222",
+]
+
+instance_ip = "10.0.1.5"
+"""
+expected = "vpc_id = \"vpc-abc123\"\nsubnet_ids = [\n  \"subnet-111\",\n  \"subnet-222\",\n]\ninstance_ip = \"10.0.1.5\""
+
+[[tests.terraform-output]]
+name = "single value passthrough"
+input = "10.0.1.5"
+expected = "10.0.1.5"

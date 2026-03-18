@@ -1,0 +1,39 @@
+[filters.terraform-apply]
+description = "Compact Terraform apply output"
+match_command = "^terraform\\s+apply(\\s|$)"
+strip_ansi = true
+strip_lines_matching = [
+  "^Refreshing state",
+  "^\\s*$",
+  "^Acquiring state lock",
+  "^Releasing state lock",
+  "^\\s*#.*unchanged",
+]
+max_lines = 80
+on_empty = "terraform apply: ok"
+
+[[tests.terraform-apply]]
+name = "strips refresh noise, keeps summary"
+input = """
+Acquiring state lock. This may take a few moments...
+Refreshing state... [id=vpc-abc123]
+Refreshing state... [id=sg-def456]
+Releasing state lock. This may take a few moments...
+
+aws_instance.web: Creating...
+aws_instance.web: Creation complete after 32s [id=i-abc123]
+
+Apply complete! Resources: 1 added, 0 changed, 0 destroyed.
+"""
+expected = "aws_instance.web: Creating...\naws_instance.web: Creation complete after 32s [id=i-abc123]\nApply complete! Resources: 1 added, 0 changed, 0 destroyed."
+
+[[tests.terraform-apply]]
+name = "error output preserved"
+input = """
+Refreshing state... [id=vpc-abc123]
+
+Error: creating EC2 Instance: UnauthorizedAccess
+  on main.tf line 5, in resource "aws_instance" "web":
+   5: resource "aws_instance" "web" {
+"""
+expected = "Error: creating EC2 Instance: UnauthorizedAccess\n  on main.tf line 5, in resource \"aws_instance\" \"web\":\n   5: resource \"aws_instance\" \"web\" {"

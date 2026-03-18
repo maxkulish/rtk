@@ -1,0 +1,37 @@
+[filters.terraform-test]
+description = "Compact Terraform test output"
+match_command = "^terraform\\s+test(\\s|$)"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+]
+max_lines = 60
+on_empty = "terraform test: all passed"
+
+[[tests.terraform-test]]
+name = "keeps pass/fail summary"
+input = """
+main.tftest.hcl... pass
+
+  run "create_vpc"... pass
+  run "create_subnet"... pass
+
+Success! 2 passed, 0 failed.
+"""
+expected = "main.tftest.hcl... pass\n  run \"create_vpc\"... pass\n  run \"create_subnet\"... pass\nSuccess! 2 passed, 0 failed."
+
+[[tests.terraform-test]]
+name = "failure details preserved"
+input = """
+main.tftest.hcl... fail
+
+  run "create_vpc"... pass
+  run "check_tags"... fail
+
+  Error: Test assertion failed
+    on main.tftest.hcl line 15:
+    condition = output.tags["Name"] == "expected"
+
+Failure! 1 passed, 1 failed.
+"""
+expected = "main.tftest.hcl... fail\n  run \"create_vpc\"... pass\n  run \"check_tags\"... fail\n  Error: Test assertion failed\n    on main.tftest.hcl line 15:\n    condition = output.tags[\"Name\"] == \"expected\"\nFailure! 1 passed, 1 failed."
