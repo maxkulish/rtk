@@ -5,6 +5,31 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0](https://github.com/maxkulish/rtk/compare/v0.24.0...v0.25.0) (2026-03-22)
+
+
+### Features
+
+* **ci:** use self-hosted macOS runner for release builds ([98a8c1a](https://github.com/maxkulish/rtk/commit/98a8c1a1455c3d285c79c36d2c021da581c81f6e))
+* **sync:** add TOML filter DSL engine with 47 built-in filters ([217f0b8](https://github.com/maxkulish/rtk/commit/217f0b8b557d193e61cfe7be0e07bdfb5e21bff5))
+* **sync:** merge Phase 3 - TOML filter DSL engine ([4220988](https://github.com/maxkulish/rtk/commit/422098820611936b9dcac29779442169b95fd5bf))
+* **sync:** port Phase 2 features from upstream rtk-ai/rtk ([d667378](https://github.com/maxkulish/rtk/commit/d667378c2925fca8658855ea823ae7bd46a225cd))
+* **sync:** port Phase 2 features from upstream rtk-ai/rtk ([f4f1a5b](https://github.com/maxkulish/rtk/commit/f4f1a5bf5c1b8697955abd08172d583e33ebca66))
+* **toml:** add complete terraform and tofu filter coverage ([b6c965e](https://github.com/maxkulish/rtk/commit/b6c965e2b2242df32ad45b51709e89b698926152))
+* **toml:** add terragrunt filter support (init, plan, apply, validate, output) ([7d701d7](https://github.com/maxkulish/rtk/commit/7d701d7e0faea32869b07ade6fc51b536cde343d))
+
+
+### Bug Fixes
+
+* auto-sync version strings via release-please extra-files ([b7b8e9d](https://github.com/maxkulish/rtk/commit/b7b8e9d80d9e89cbfbe402f13caa4bcedc78b2d7))
+* **ci:** exclude mod tests from inline module count check in workflow ([9ee8cf4](https://github.com/maxkulish/rtk/commit/9ee8cf47890d3fdf776535498512f704dfd6691b))
+* **docs:** add 18 missing modules to ARCHITECTURE.md and fix validation count ([d847374](https://github.com/maxkulish/rtk/commit/d847374dda88625ff0077a324f985fd705359321))
+* **git:** implement P1.1 upstream fixes - exit codes, commit flags, log limits ([8be5c02](https://github.com/maxkulish/rtk/commit/8be5c02653bf36dae9e77e1d1fd8ef10065a1c59))
+* port P1.3 other module fixes from upstream ([bacd6c0](https://github.com/maxkulish/rtk/commit/bacd6c0035ba8718355fa4bc1c26920f73c442df))
+* **sync:** correct 7 TOML filter inline test expectations for on_empty ([253695c](https://github.com/maxkulish/rtk/commit/253695c697ef3e09f795a5998f22b2a5efa34629))
+* **sync:** port 16 upstream bug fixes from rtk-ai/rtk v0.24.0..v0.27.2 ([8174e9c](https://github.com/maxkulish/rtk/commit/8174e9ca9bfb4b811a664479bbbe209c64f76166))
+* **sync:** suppress dead code warnings for json_cmd compact functions ([a505a86](https://github.com/maxkulish/rtk/commit/a505a8676370d0036681510bf1e8e9ffb94d7172))
+
 ## [0.24.0](https://github.com/maxkulish/rtk/compare/v0.23.2...v0.24.0) (2026-03-02)
 
 
