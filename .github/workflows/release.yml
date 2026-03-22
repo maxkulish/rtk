@@ -28,12 +28,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS
+          # macOS (self-hosted M1 Pro - cross-compiles x86_64, native aarch64)
           - target: x86_64-apple-darwin
-            os: macos-latest
+            os: [self-hosted, macOS, ARM64, m1pro]
             archive: tar.gz
           - target: aarch64-apple-darwin
-            os: macos-latest
+            os: [self-hosted, macOS, ARM64, m1pro]
             archive: tar.gz
           # Linux
           - target: x86_64-unknown-linux-gnu
@@ -68,14 +68,14 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (Unix)
-        if: matrix.os != 'windows-latest'
+        if: matrix.archive == 'tar.gz'
         run: |
           cd target/${{ matrix.target }}/release
           tar -czvf ../../../rtk-${{ matrix.target }}.${{ matrix.archive }} rtk
           cd ../../..
 
       - name: Package (Windows)
-        if: matrix.os == 'windows-latest'
+        if: matrix.archive == 'zip'
         run: |
           cd target/${{ matrix.target }}/release
           7z a ../../../rtk-${{ matrix.target }}.${{ matrix.archive }} rtk.exe
