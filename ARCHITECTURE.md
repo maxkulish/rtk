@@ -224,7 +224,7 @@ Database: ~/.local/share/rtk/history.db
 
 ## Module Organization
 
-### Complete Module Map (30 Modules)
+### Complete Module Map (55 Modules)
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -237,6 +237,9 @@ Category          Module            Commands               Savings    File
 GIT               git.rs            status, diff, log      85-99%     ✓
                                     add, commit, push
                                     branch, checkout
+                  gt_cmd.rs         gt (git-temporal)      60%+       ✓
+
+BUILD             cargo_cmd.rs      cargo build/test/etc   60%+       ✓
 
 CODE SEARCH       grep_cmd.rs       grep                   60-80%     ✓
                   diff_cmd.rs       diff                   70-85%     ✓
@@ -244,6 +247,8 @@ CODE SEARCH       grep_cmd.rs       grep                   60-80%     ✓
 
 FILE OPS          ls.rs             ls                     50-70%     ✓
                   read.rs           read                   40-90%     ✓
+                  tree.rs           tree                   60%+       ✓
+                  wc_cmd.rs         wc                     60%+       ✓
 
 EXECUTION         runner.rs         err, test              60-99%     ✓
                   summary.rs        smart (heuristic)      50-80%     ✓
@@ -260,6 +265,9 @@ JS/TS STACK       lint_cmd.rs       lint                   84%        ✓
                   prisma_cmd.rs     prisma                 88%        ✓
                   vitest_cmd.rs     vitest                 99.5%      ✓
                   pnpm_cmd.rs       pnpm                   70-90%     ✓
+                  npm_cmd.rs        npm                    70%+       ✓
+
+FORMATTERS        format_cmd.rs     format (auto-detect)   70%+       ✓
 
 CONTAINERS        container.rs      podman, docker         60-80%     ✓
 
@@ -273,7 +281,12 @@ PYTHON            ruff_cmd.rs       ruff check/format      80%+       ✓
 GO                go_cmd.rs         go test/build/vet      75-90%     ✓
                   golangci_cmd.rs   golangci-lint          85%        ✓
 
-NETWORK           wget_cmd.rs       wget                   85-95%     ✓
+CLOUD             aws_cmd.rs        aws CLI                60%+       ✓
+
+NETWORK           curl_cmd.rs       curl                   60%+       ✓
+                  wget_cmd.rs       wget                   85-95%     ✓
+
+DATABASE          psql_cmd.rs       psql                   40-60%     ✓
 
 DEPENDENCIES      deps.rs           deps                   80-90%     ✓
 
@@ -281,24 +294,36 @@ ENVIRONMENT       env_cmd.rs        env                    60-80%     ✓
 
 SYSTEM            init.rs           init                   N/A        ✓
                   gain.rs           gain                   N/A        ✓
+                  hook_audit_cmd.rs hook-audit             30%+       ✓
                   config.rs         (internal)             N/A        ✓
 
 SHARED            utils.rs          Helpers                N/A        ✓
                   filter.rs         Language filters       N/A        ✓
                   tracking.rs       Token tracking         N/A        ✓
                   tee.rs            Full output recovery   N/A        ✓
+                  display_helpers.rs Table display helpers  N/A        ✓
+                  rewrite_cmd.rs    Hook rewrite dispatch  N/A        ✓
+                  toml_filter.rs    TOML filter DSL engine N/A        ✓
+                  parser.rs         Parser infrastructure  N/A        ✓
+
+ANALYTICS         cc_economics.rs   Spending vs savings    N/A        ✓
+                  ccusage.rs        Claude Code API usage  N/A        ✓
+                  discover/         Session analysis       N/A        ✓
+                  learn/            CLI correction detect  N/A        ✓
 ```
 
-**Total: 51 modules** (33 command modules + 18 infrastructure modules)
+**Total: 55 modules** (37 command modules + 18 infrastructure modules)
 
 ### Module Count Breakdown
 
-- **Command Modules**: 32 (directly exposed to users)
-- **Infrastructure Modules**: 18 (utils, filter, tracking, tee, config, init, gain, etc.)
-- **Git Commands**: 7 operations (status, diff, log, add, commit, push, branch/checkout)
-- **JS/TS Tooling**: 8 modules (modern frontend/fullstack development)
+- **Command Modules**: 37 (directly exposed to users)
+- **Infrastructure Modules**: 18 (utils, filter, tracking, tee, config, parser, toml_filter, etc.)
+- **Git Commands**: 7 operations + gt (status, diff, log, add, commit, push, branch/checkout)
+- **JS/TS Tooling**: 9 modules (modern frontend/fullstack development)
 - **Python Tooling**: 4 modules (ruff, pytest, pip, mypy)
 - **Go Tooling**: 2 modules (go test/build/vet, golangci-lint)
+- **Cloud/Network**: 3 modules (aws, curl, wget)
+- **Analytics**: 4 modules (cc_economics, ccusage, discover, learn)
 
 ---
 

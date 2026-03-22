@@ -38,7 +38,7 @@ fi
 echo "OK: Version consistency - all docs mention $CARGO_VERSION with release-please annotations"
 
 # 2. Module count: main.rs must match ARCHITECTURE.md
-MAIN_MODULES=$(grep -c '^mod ' src/main.rs)
+MAIN_MODULES=$(grep '^mod ' src/main.rs | grep -vc 'mod tests')
 echo "Module count in main.rs: $MAIN_MODULES"
 
 if [ -f "ARCHITECTURE.md" ]; then
