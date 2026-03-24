@@ -81,19 +81,17 @@ jobs:
           if (Test-Path .cargo/config.toml) { Remove-Item .cargo/config.toml }
           rustup target add ${{ matrix.target }} 2>$null
 
-      - name: Debug toolchain info
-        if: matrix.target == 'x86_64-apple-darwin'
+      - name: Ensure rustup toolchain takes priority over Homebrew
+        if: runner.os == 'macOS'
         run: |
-          echo "=== rustup show ==="
-          rustup show
-          echo "=== rustc --print sysroot ==="
-          rustc --print sysroot
-          echo "=== target list ==="
-          rustup target list --installed
-          echo "=== check stdlib exists ==="
-          SYSROOT=$(rustc --print sysroot)
-          ls "$SYSROOT/lib/rustlib/" | grep x86_64 || echo "NO x86_64 dir found"
-          ls "$SYSROOT/lib/rustlib/x86_64-apple-darwin/lib/" 2>/dev/null | head -5 || echo "NO stdlib files found"
+          # Self-hosted runners may have Homebrew Rust (/opt/homebrew/bin/rustc)
+          # shadowing rustup-managed Rust. Prepend CARGO_HOME/bin to PATH so
+          # cargo/rustc resolve to the rustup toolchain with cross-compile targets.
+          RUSTUP_BIN="${CARGO_HOME:-$HOME/.cargo}/bin"
+          echo "$RUSTUP_BIN" >> $GITHUB_PATH
+          echo "Prepended $RUSTUP_BIN to PATH"
+          echo "rustc will resolve to: $(PATH="$RUSTUP_BIN:$PATH" which rustc)"
+          echo "sysroot: $(PATH="$RUSTUP_BIN:$PATH" rustc --print sysroot)"
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
