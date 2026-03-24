@@ -64,16 +64,15 @@ jobs:
           sudo apt-get install -y gcc-aarch64-linux-gnu
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
-      - name: Set up x86_64 cross-compilation (macOS ARM64)
-        if: matrix.target == 'x86_64-apple-darwin'
+      - name: Remove target-cpu=native for portable release binaries
         run: |
-          # Ensure x86_64 target stdlib is installed (rustup toolchain install
-          # --target can silently skip on self-hosted runners with existing toolchains)
-          rustup target add x86_64-apple-darwin
-          # .cargo/config.toml sets target-cpu=native which resolves to apple-m1
-          # on ARM64 runners - invalid for x86_64 cross-compilation.
-          # RUSTFLAGS env var overrides .cargo/config.toml rustflags entirely.
-          echo "RUSTFLAGS=" >> $GITHUB_ENV
+          # .cargo/config.toml sets target-cpu=native which optimizes for the build
+          # machine's CPU. For release binaries we want portable builds, and on
+          # ARM64 self-hosted runners it also breaks x86_64 cross-compilation
+          # (native resolves to apple-m1, invalid for x86_64 target).
+          rm -f .cargo/config.toml
+          # Ensure cross-compilation target stdlib is available
+          rustup target add ${{ matrix.target }} 2>/dev/null || true
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
