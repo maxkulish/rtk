@@ -65,14 +65,35 @@ jobs:
           echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
 
       - name: Remove target-cpu=native for portable release binaries
+        if: runner.os != 'Windows'
         run: |
           # .cargo/config.toml sets target-cpu=native which optimizes for the build
           # machine's CPU. For release binaries we want portable builds, and on
-          # ARM64 self-hosted runners it also breaks x86_64 cross-compilation
-          # (native resolves to apple-m1, invalid for x86_64 target).
+          # ARM64 self-hosted runners it also breaks x86_64 cross-compilation.
           rm -f .cargo/config.toml
           # Ensure cross-compilation target stdlib is available
           rustup target add ${{ matrix.target }} 2>/dev/null || true
+
+      - name: Remove target-cpu=native (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (Test-Path .cargo/config.toml) { Remove-Item .cargo/config.toml }
+          rustup target add ${{ matrix.target }} 2>$null
+
+      - name: Debug toolchain info
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          echo "=== rustup show ==="
+          rustup show
+          echo "=== rustc --print sysroot ==="
+          rustc --print sysroot
+          echo "=== target list ==="
+          rustup target list --installed
+          echo "=== check stdlib exists ==="
+          SYSROOT=$(rustc --print sysroot)
+          ls "$SYSROOT/lib/rustlib/" | grep x86_64 || echo "NO x86_64 dir found"
+          ls "$SYSROOT/lib/rustlib/x86_64-apple-darwin/lib/" 2>/dev/null | head -5 || echo "NO stdlib files found"
 
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
