@@ -71,6 +71,7 @@ const PATTERNS: &[&str] = &[
     r"^(python3?\s+-m\s+)?mypy(\s|$)",
     r"^curl\s+",
     r"^wget\s+",
+    r"^terragrunt\s+(plan|apply|init|output|validate|state)",
 ];
 
 const RULES: &[RtkRule] = &[
@@ -232,6 +233,13 @@ const RULES: &[RtkRule] = &[
         savings_pct: 65.0,
         subcmd_savings: &[],
         subcmd_status: &[],
+    },
+    RtkRule {
+        rtk_cmd: "rtk terragrunt",
+        category: "Infra",
+        savings_pct: 80.0,
+        subcmd_savings: &[("plan", 85.0), ("apply", 85.0)],
+        subcmd_status: &[("state", super::report::RtkStatus::Passthrough)],
     },
 ];
 
@@ -901,6 +909,66 @@ mod tests {
         assert_eq!(
             rewrite_command("GIT_SSH_COMMAND=ssh git push", &[]),
             Some("rtk git push".to_string())
+        );
+    }
+
+    #[test]
+    fn test_classify_terragrunt_plan() {
+        assert_eq!(
+            classify_command("terragrunt plan 2>&1"),
+            Classification::Supported {
+                rtk_equivalent: "rtk terragrunt",
+                category: "Infra",
+                estimated_savings_pct: 85.0,
+                status: RtkStatus::Existing,
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_terragrunt_apply() {
+        assert_eq!(
+            classify_command("terragrunt apply -auto-approve 2>&1"),
+            Classification::Supported {
+                rtk_equivalent: "rtk terragrunt",
+                category: "Infra",
+                estimated_savings_pct: 85.0,
+                status: RtkStatus::Existing,
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_terragrunt_state_passthrough() {
+        assert_eq!(
+            classify_command("terragrunt state list 2>&1"),
+            Classification::Supported {
+                rtk_equivalent: "rtk terragrunt",
+                category: "Infra",
+                estimated_savings_pct: 80.0,
+                status: RtkStatus::Passthrough,
+            }
+        );
+    }
+
+    #[test]
+    fn test_classify_terragrunt_init() {
+        assert_eq!(
+            classify_command("terragrunt init"),
+            Classification::Supported {
+                rtk_equivalent: "rtk terragrunt",
+                category: "Infra",
+                estimated_savings_pct: 80.0,
+                status: RtkStatus::Existing,
+            }
+        );
+    }
+
+    #[test]
+    fn test_rewrite_terragrunt_plan() {
+        assert_eq!(
+            rewrite_command("terragrunt plan -var-file=prod.tfvars", &[]),
+            Some("rtk terragrunt plan -var-file=prod.tfvars".to_string())
         );
     }
 
