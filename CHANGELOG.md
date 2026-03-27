@@ -5,6 +5,18 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1](https://github.com/maxkulish/rtk/compare/v0.25.0...v0.25.1) (2026-03-27)
+
+
+### Bug Fixes
+
+* **ci:** add debug info for x86_64 cross-compile and fix Windows rm ([8a00838](https://github.com/maxkulish/rtk/commit/8a0083867c9c4a691e52b26030705dac610f3c7f))
+* **ci:** add explicit rustup target add for x86_64 cross-compilation ([793d2ff](https://github.com/maxkulish/rtk/commit/793d2ff57635389e25f48bd01c7533e557c05c19))
+* **ci:** prepend rustup bin to PATH over Homebrew Rust on self-hosted runner ([41b9933](https://github.com/maxkulish/rtk/commit/41b993374d8c89943640d02bc4b16402309ebe81))
+* **ci:** remove .cargo/config.toml in release builds for portable binaries ([377338d](https://github.com/maxkulish/rtk/commit/377338d07e7b3e093a17517f6f5baaa4a78e1579))
+* **ci:** resolve x86_64 cross-compilation on ARM64 self-hosted runner ([b55c85d](https://github.com/maxkulish/rtk/commit/b55c85d9aedc0298c16a678ab2fb13a236dd2e65))
+* **discover:** classify terragrunt commands as supported in rtk discover ([ce0ee09](https://github.com/maxkulish/rtk/commit/ce0ee09c787ee18aaf13626f992d5c14f1468b0b))
+
 ## [0.25.0](https://github.com/maxkulish/rtk/compare/v0.24.0...v0.25.0) (2026-03-22)
 
 
