@@ -306,11 +306,17 @@ pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
     let mut added = 0;
     let mut removed = 0;
     let mut in_hunk = false;
-    let mut hunk_lines = 0;
+    let mut hunk_shown = 0;
+    let mut hunk_skipped: usize = 0;
     let max_hunk_lines = 10;
 
     for line in diff.lines() {
         if line.starts_with("diff --git") {
+            // Flush previous hunk's skipped count
+            if hunk_skipped > 0 {
+                result.push(format!("  ... ({} lines truncated)", hunk_skipped));
+                hunk_skipped = 0;
+            }
             // New file
             if !current_file.is_empty() && (added > 0 || removed > 0) {
                 result.push(format!("  +{} -{}", added, removed));
@@ -321,42 +327,56 @@ pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
             removed = 0;
             in_hunk = false;
         } else if line.starts_with("@@") {
+            // Flush previous hunk's skipped count
+            if hunk_skipped > 0 {
+                result.push(format!("  ... ({} lines truncated)", hunk_skipped));
+                hunk_skipped = 0;
+            }
             // New hunk
             in_hunk = true;
-            hunk_lines = 0;
+            hunk_shown = 0;
             let hunk_info = line.split("@@").nth(1).unwrap_or("").trim();
             result.push(format!("  @@ {} @@", hunk_info));
         } else if in_hunk {
             if line.starts_with('+') && !line.starts_with("+++") {
                 added += 1;
-                if hunk_lines < max_hunk_lines {
+                if hunk_shown < max_hunk_lines {
                     result.push(format!("  {}", line));
-                    hunk_lines += 1;
+                    hunk_shown += 1;
+                } else {
+                    hunk_skipped += 1;
                 }
             } else if line.starts_with('-') && !line.starts_with("---") {
                 removed += 1;
-                if hunk_lines < max_hunk_lines {
+                if hunk_shown < max_hunk_lines {
                     result.push(format!("  {}", line));
-                    hunk_lines += 1;
+                    hunk_shown += 1;
+                } else {
+                    hunk_skipped += 1;
                 }
-            } else if hunk_lines < max_hunk_lines && !line.starts_with("\\") {
+            } else if !line.starts_with("\\") {
                 // Context line
-                if hunk_lines > 0 {
+                if hunk_shown < max_hunk_lines && hunk_shown > 0 {
                     result.push(format!("  {}", line));
-                    hunk_lines += 1;
+                    hunk_shown += 1;
+                } else if hunk_shown >= max_hunk_lines {
+                    hunk_skipped += 1;
                 }
-            }
-
-            if hunk_lines == max_hunk_lines {
-                result.push("  ... (truncated)".to_string());
-                hunk_lines += 1;
             }
         }
 
         if result.len() >= max_lines {
-            result.push("\n... (more changes truncated)".to_string());
+            if hunk_skipped > 0 {
+                result.push(format!("  ... ({} lines truncated)", hunk_skipped));
+            }
+            result.push("\n[full diff: rtk git diff --no-compact]".to_string());
             break;
         }
+    }
+
+    // Flush final hunk's skipped count
+    if hunk_skipped > 0 {
+        result.push(format!("  ... ({} lines truncated)", hunk_skipped));
     }
 
     if !current_file.is_empty() && (added > 0 || removed > 0) {
@@ -1538,6 +1558,43 @@ mod tests {
     }
 
     #[test]
+    fn test_compact_diff_hunk_truncation_count_accurate() {
+        // Build a diff with 60 added lines in one hunk
+        let mut diff = String::from("diff --git a/big.rs b/big.rs\n");
+        diff.push_str("--- a/big.rs\n+++ b/big.rs\n");
+        diff.push_str("@@ -1,0 +1,60 @@\n");
+        for i in 0..60 {
+            diff.push_str(&format!("+line {}\n", i));
+        }
+
+        let result = compact_diff(&diff, 500);
+        // Should show first 10 lines, then exact count of remaining
+        assert!(
+            result.contains("50 lines truncated"),
+            "Should show exact count of truncated lines, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_compact_diff_no_false_truncation() {
+        // Diff with exactly 8 added lines - no truncation needed
+        let mut diff = String::from("diff --git a/small.rs b/small.rs\n");
+        diff.push_str("--- a/small.rs\n+++ b/small.rs\n");
+        diff.push_str("@@ -1,0 +1,8 @@\n");
+        for i in 0..8 {
+            diff.push_str(&format!("+line {}\n", i));
+        }
+
+        let result = compact_diff(&diff, 500);
+        assert!(
+            !result.contains("truncated"),
+            "8 lines should not trigger truncation, got: {}",
+            result
+        );
+    }
+
+    #[test]
     fn test_filter_branch_output() {
         let output = "* main\n  feature/auth\n  fix/bug-123\n  remotes/origin/HEAD -> origin/main\n  remotes/origin/main\n  remotes/origin/feature/auth\n  remotes/origin/release/v2\n";
         let result = filter_branch_output(output);
@@ -1670,6 +1727,32 @@ M  file7.rs
         assert!(result.contains("  This commit adds a new feature"));
         assert!(!result.contains("Signed-off-by"));
         assert!(result.contains("def5678 fix: bug fix"));
+    }
+
+    #[test]
+    fn test_filter_log_output_body_omission_indicator() {
+        let body_lines = (0..6)
+            .map(|i| format!("Body line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let input = format!(
+            "abc1234 feat: big change (1 day ago) <dev>\n{}\n---END---",
+            body_lines
+        );
+        let result = filter_log_output(&input, 10, false, false);
+        assert!(
+            result.contains("Body line 0"),
+            "First body line should show"
+        );
+        assert!(
+            result.contains("Body line 2"),
+            "Third body line should show"
+        );
+        assert!(
+            result.contains("[+3 lines omitted]"),
+            "Should indicate 3 omitted lines, got: {}",
+            result
+        );
     }
 
     #[test]
