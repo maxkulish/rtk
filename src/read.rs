@@ -4,6 +4,25 @@ use anyhow::{Context, Result};
 use std::fs;
 use std::path::Path;
 
+/// Check if data is likely binary by scanning for null bytes in first 8KB
+fn is_likely_binary(data: &[u8]) -> bool {
+    let check_len = data.len().min(8192);
+    data[..check_len].contains(&0)
+}
+
+/// Format bytes into human-readable size
+fn human_size(bytes: u64) -> String {
+    if bytes >= 1_073_741_824 {
+        format!("{:.1} GB", bytes as f64 / 1_073_741_824.0)
+    } else if bytes >= 1_048_576 {
+        format!("{:.1} MB", bytes as f64 / 1_048_576.0)
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} bytes", bytes)
+    }
+}
+
 pub fn run(
     file: &Path,
     level: FilterLevel,
@@ -17,9 +36,23 @@ pub fn run(
         eprintln!("Reading: {} (filter: {})", file.display(), level);
     }
 
-    // Read file content
-    let content = fs::read_to_string(file)
-        .with_context(|| format!("Failed to read file: {}", file.display()))?;
+    // Read file as bytes first for binary detection
+    let raw_bytes =
+        fs::read(file).with_context(|| format!("Failed to read file: {}", file.display()))?;
+
+    // Binary file detection
+    if is_likely_binary(&raw_bytes) {
+        let size = human_size(raw_bytes.len() as u64);
+        let msg = format!("[binary file: {} ({})]", file.display(), size);
+        println!("{}", msg);
+        println!("hint: use cat {} to view raw content", file.display());
+        timer.track(&format!("cat {}", file.display()), "rtk read", &msg, &msg);
+        return Ok(());
+    }
+
+    // Convert to UTF-8
+    let content = String::from_utf8(raw_bytes)
+        .with_context(|| format!("File is not valid UTF-8: {}", file.display()))?;
 
     // Detect language from extension
     let lang = file
@@ -35,6 +68,16 @@ pub fn run(
     // Apply filter
     let filter = filter::get_filter(level);
     let mut filtered = filter.filter(&content, &lang);
+
+    // Safety: if filter produced empty output from non-empty input, warn and fallback
+    if filtered.trim().is_empty() && !content.trim().is_empty() {
+        eprintln!(
+            "rtk: warning: filter produced empty output for {} ({} bytes), showing raw content",
+            file.display(),
+            content.len()
+        );
+        filtered = content.clone();
+    }
 
     if verbose > 0 {
         let original_lines = content.lines().count();
@@ -169,5 +212,38 @@ fn main() {{
         // Test that run_stdin has correct signature and compiles
         // We don't actually run it because it would hang waiting for stdin
         // Compile-time verification that the function exists with correct signature
+    }
+
+    #[test]
+    fn test_is_binary_detects_null_bytes() {
+        let data = b"hello\x00world";
+        assert!(is_likely_binary(data));
+    }
+
+    #[test]
+    fn test_is_binary_passes_text() {
+        let data = b"fn main() {\n    println!(\"hello\");\n}";
+        assert!(!is_likely_binary(data));
+    }
+
+    #[test]
+    fn test_is_binary_passes_utf8() {
+        let data = "日本語のコード".as_bytes();
+        assert!(!is_likely_binary(data));
+    }
+
+    #[test]
+    fn test_human_size_bytes() {
+        assert_eq!(human_size(500), "500 bytes");
+    }
+
+    #[test]
+    fn test_human_size_kb() {
+        assert_eq!(human_size(2048), "2.0 KB");
+    }
+
+    #[test]
+    fn test_human_size_mb() {
+        assert_eq!(human_size(5_242_880), "5.0 MB");
     }
 }

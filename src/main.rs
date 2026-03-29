@@ -105,7 +105,7 @@ enum Commands {
         /// File to read
         file: PathBuf,
         /// Filter: none, minimal, aggressive
-        #[arg(short, long, default_value = "minimal")]
+        #[arg(short, long, default_value = "none")]
         level: filter::FilterLevel,
         /// Max lines
         #[arg(short, long)]
