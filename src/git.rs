@@ -1754,6 +1754,52 @@ no changes added to commit (use "git add" and/or "git commit -a")
     }
 
     #[test]
+    fn test_filter_log_output_user_format_oneline() {
+        // Simulates --oneline output (no ---END--- markers)
+        let input = "abc1234 first commit\n\
+                     def5678 second commit\n\
+                     ghi9012 third commit\n\
+                     jkl3456 fourth commit\n\
+                     mno7890 fifth commit";
+        // user_format=true, user_set_limit=false, limit=3 (RTK default)
+        let result = filter_log_output(input, 3, false, true);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 3, "Should show 3 lines (RTK default limit)");
+        assert!(result.contains("abc1234 first commit"));
+        assert!(result.contains("ghi9012 third commit"));
+        assert!(
+            !result.contains("jkl3456"),
+            "4th commit should be truncated"
+        );
+    }
+
+    #[test]
+    fn test_filter_log_output_user_format_respects_user_limit() {
+        let input = "abc1234 first commit\ndef5678 second commit\nghi9012 third commit\njkl3456 fourth commit\nmno7890 fifth commit";
+        // user_format=true, user_set_limit=true, limit=3 -> show ALL lines (user chose -5)
+        let result = filter_log_output(input, 3, true, true);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(
+            lines.len(),
+            5,
+            "Should show all 5 lines when user set limit (bypasses RTK cap)"
+        );
+        assert!(result.contains("mno7890"), "5th commit must be present");
+    }
+
+    #[test]
+    fn test_filter_log_output_user_format_no_drops() {
+        // Regression test: --oneline must NOT drop commits
+        let input = (0..20)
+            .map(|i| format!("{:07x} commit {}", i, i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result = filter_log_output(&input, 50, false, true);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 20, "All 20 commits must be present");
+    }
+
+    #[test]
     fn test_format_status_output_thai_filename() {
         let porcelain = "## main\n M สวัสดี.txt\n?? ทดสอบ.rs\n";
         let result = format_status_output(porcelain);
