@@ -415,7 +415,7 @@ fn run_log(
 
     // Apply RTK defaults only if user didn't specify them
     if !has_format_flag {
-        cmd.args(["--pretty=format:%h %s (%ar) <%an>"]);
+        cmd.args(["--pretty=format:%h %s (%ar) <%an>%n%b%n---END---"]);
     }
 
     // Determine limit: respect user's explicit -N flag, use sensible defaults otherwise
@@ -461,7 +461,7 @@ fn run_log(
     }
 
     // Post-process: truncate long messages, cap lines
-    let filtered = filter_log_output(&stdout, limit);
+    let filtered = filter_log_output(&stdout, limit, has_limit_flag, has_format_flag);
     println!("{}", filtered);
 
     timer.track(
@@ -474,23 +474,98 @@ fn run_log(
     Ok(())
 }
 
-/// Filter git log output: truncate long messages, cap lines
-fn filter_log_output(output: &str, limit: usize) -> String {
-    let lines: Vec<&str> = output.lines().collect();
-    let capped: Vec<String> = lines
-        .iter()
-        .take(limit)
-        .map(|line| {
-            if line.len() > 80 {
-                let truncated: String = line.chars().take(77).collect();
+/// Filter git log output: parse blocks separated by ---END---, extract body
+fn filter_log_output(
+    output: &str,
+    limit: usize,
+    user_set_limit: bool,
+    user_format: bool,
+) -> String {
+    let truncate_width = 120;
+
+    // When user specified their own format, don't parse ---END--- blocks
+    if user_format {
+        let lines: Vec<&str> = output.lines().collect();
+        let max_lines = if user_set_limit { lines.len() } else { limit };
+        return lines
+            .iter()
+            .take(max_lines)
+            .map(|l| {
+                if l.len() > truncate_width {
+                    let truncated: String = l.chars().take(truncate_width - 3).collect();
+                    format!("{}...", truncated)
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+
+    // Parse ---END--- delimited blocks from RTK's custom format
+    let blocks: Vec<&str> = output.split("---END---").collect();
+    let mut entries = Vec::new();
+
+    for block in blocks.iter().take(limit) {
+        let block = block.trim();
+        if block.is_empty() {
+            continue;
+        }
+
+        let mut lines = block.lines();
+        let header = match lines.next() {
+            Some(h) => h.trim(),
+            None => continue,
+        };
+
+        if header.is_empty() {
+            continue;
+        }
+
+        // Truncate header if too long
+        let header = if header.len() > truncate_width {
+            let truncated: String = header.chars().take(truncate_width - 3).collect();
+            format!("{}...", truncated)
+        } else {
+            header.to_string()
+        };
+
+        let mut entry = header;
+
+        // Extract first meaningful body line (skip trailers)
+        let all_body_lines: Vec<&str> = lines
+            .map(|l| l.trim())
+            .filter(|l| {
+                !l.is_empty()
+                    && !l.starts_with("Signed-off-by:")
+                    && !l.starts_with("Co-authored-by:")
+                    && !l.starts_with("Co-Authored-By:")
+            })
+            .collect();
+
+        // Show up to 3 body lines
+        let body_limit = 3;
+        let body_omitted = all_body_lines.len().saturating_sub(body_limit);
+        let body_lines = &all_body_lines[..all_body_lines.len().min(body_limit)];
+
+        for body_line in body_lines {
+            let body_line = if body_line.len() > truncate_width - 2 {
+                let truncated: String = body_line.chars().take(truncate_width - 5).collect();
                 format!("{}...", truncated)
             } else {
-                line.to_string()
-            }
-        })
-        .collect();
+                body_line.to_string()
+            };
+            entry.push_str(&format!("\n  {}", body_line));
+        }
 
-    capped.join("\n").trim().to_string()
+        if body_omitted > 0 {
+            entry.push_str(&format!("\n  [+{} lines omitted]", body_omitted));
+        }
+
+        entries.push(entry);
+    }
+
+    entries.join("\n")
 }
 
 /// Format porcelain output into compact RTK status display
@@ -1581,9 +1656,26 @@ M  file7.rs
     }
 
     #[test]
+    fn test_filter_log_output_preserves_body() {
+        let input = "abc1234 feat: add feature (2 days ago) <dev>\n\
+                     This commit adds a new feature for users.\n\
+                     \n\
+                     Signed-off-by: Dev <dev@example.com>\n\
+                     ---END---\n\
+                     def5678 fix: bug fix (3 days ago) <dev>\n\
+                     \n\
+                     ---END---";
+        let result = filter_log_output(input, 10, false, false);
+        assert!(result.contains("abc1234 feat: add feature"));
+        assert!(result.contains("  This commit adds a new feature"));
+        assert!(!result.contains("Signed-off-by"));
+        assert!(result.contains("def5678 fix: bug fix"));
+    }
+
+    #[test]
     fn test_filter_log_output() {
-        let output = "abc1234 This is a commit message (2 days ago) <author>\ndef5678 Another commit (1 week ago) <other>\n";
-        let result = filter_log_output(output, 10);
+        let output = "abc1234 This is a commit message (2 days ago) <author>\n\n---END---\ndef5678 Another commit (1 week ago) <other>\n\n---END---\n";
+        let result = filter_log_output(output, 10, false, false);
         assert!(result.contains("abc1234"));
         assert!(result.contains("def5678"));
         assert_eq!(result.lines().count(), 2);
@@ -1591,20 +1683,23 @@ M  file7.rs
 
     #[test]
     fn test_filter_log_output_truncate_long() {
-        let long_line = "abc1234 ".to_string() + &"x".repeat(100) + " (2 days ago) <author>";
-        let result = filter_log_output(&long_line, 10);
+        // Create a line longer than 120 chars to test truncation
+        let long_line =
+            "abc1234 ".to_string() + &"x".repeat(120) + " (2 days ago) <author>\n\n---END---\n";
+        let result = filter_log_output(&long_line, 10, false, false);
         assert!(result.len() < long_line.len());
         assert!(result.contains("..."));
-        assert!(result.len() <= 80);
+        // With truncate_width=120, header should be ~123 chars (120 + "...")
+        assert!(result.len() <= 125);
     }
 
     #[test]
     fn test_filter_log_output_cap_lines() {
         let output = (0..20)
-            .map(|i| format!("hash{} message {} (1 day ago) <author>", i, i))
+            .map(|i| format!("hash{} message {} (1 day ago) <author>\n\n---END---", i, i))
             .collect::<Vec<_>>()
             .join("\n");
-        let result = filter_log_output(&output, 5);
+        let result = filter_log_output(&output, 5, false, false);
         assert_eq!(result.lines().count(), 5);
     }
 
@@ -1639,20 +1734,21 @@ no changes added to commit (use "git add" and/or "git commit -a")
 
     #[test]
     fn test_filter_log_output_multibyte() {
-        // Thai characters: each is 3 bytes. A line with >80 bytes but few chars
-        let thai_msg = format!("abc1234 {} (2 days ago) <author>", "ก".repeat(30));
-        let result = filter_log_output(&thai_msg, 10);
+        // Thai characters: each is 3 bytes. Create a line >120 chars to test truncation
+        let thai_msg = format!("abc1234 {} (2 days ago) <author>", "ก".repeat(125));
+        let result = filter_log_output(&thai_msg, 10, false, true);
         // Should not panic
         assert!(result.contains("abc1234"));
-        // The line has 30 Thai chars (90 bytes) + other text, so > 80 bytes
+        // The line has 125 Thai chars + other text, so > 120 chars
         // It should be truncated with "..."
         assert!(result.contains("..."));
     }
 
     #[test]
     fn test_filter_log_output_emoji() {
-        let emoji_msg = "abc1234 🎉🎊🎈🎁🎂🎄🎃🎆🎇✨🎉🎊🎈🎁🎂🎄🎃🎆🎇✨ (1 day ago) <user>";
-        let result = filter_log_output(emoji_msg, 10);
+        // Create a line >120 chars with many emojis
+        let emoji_msg = format!("abc1234 {} (1 day ago) <user>", "🎉".repeat(125));
+        let result = filter_log_output(&emoji_msg, 10, false, true);
         // Should not panic, should have "..."
         assert!(result.contains("..."));
     }
