@@ -761,6 +761,24 @@ fn filter_cargo_test(output: &str) -> String {
         failures.push(current_failure.join("\n"));
     }
 
+    // If no test results found, check for compile errors
+    if failures.is_empty() && summary_lines.is_empty() {
+        let has_compile_errors = output.lines().any(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with("error[") || trimmed.starts_with("error:")
+        });
+        if has_compile_errors {
+            let build_filtered = filter_cargo_build(output);
+            if build_filtered.starts_with("cargo build:") {
+                return build_filtered.replacen("cargo build:", "cargo test:", 1);
+            }
+            // If filter_cargo_build didn't produce structured output, return it as-is
+            if !build_filtered.is_empty() {
+                return build_filtered;
+            }
+        }
+    }
+
     let mut result = String::new();
 
     if failures.is_empty() && !summary_lines.is_empty() {
@@ -1169,6 +1187,33 @@ test result: MALFORMED LINE WITHOUT PROPER FORMAT
         assert!(
             result.contains("✓ test result: MALFORMED"),
             "Expected fallback format, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_cargo_test_compile_error_preserves_diagnostics() {
+        let input = r#"   Compiling myapp v0.1.0 (/home/user/myapp)
+error[E0308]: mismatched types
+ --> src/main.rs:10:5
+  |
+10|     let x: u32 = "hello";
+  |                  ^^^^^^^ expected `u32`, found `&str`
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `myapp` (bin "myapp") due to 1 previous error
+"#;
+        let result = filter_cargo_test(input);
+        assert!(
+            result.contains("error[E0308]") || result.contains("mismatched types"),
+            "Compile errors should be preserved, got: {}",
+            result
+        );
+        assert!(
+            result.starts_with("cargo test:"),
+            "Should start with 'cargo test:', got: {}",
             result
         );
     }
