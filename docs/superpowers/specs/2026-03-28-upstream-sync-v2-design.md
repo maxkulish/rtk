@@ -79,16 +79,10 @@ These MUST be ported in strict order due to overlapping code:
       -> #833 (exact truncation counts)
 ```
 
-### P1.1 - Git log limit parsing (#505)
+### P1.1 - Git log limit parsing (#505) -- ALREADY DONE
 
-- **Upstream PR**: #505 - "fix: respect user-specified git log limits"
-- **Upstream commit**: `e06d77e` (merge), key commit `e67f52c`
-- **Files**: `src/git.rs`
-- **Stats**: +188/-42
-- **Problem**: `rtk git log -n 5` and `--max-count=5` forms not recognized, RTK injects its own `-10` limit on top
-- **Fix**: Parse `-n N` and `--max-count=N` in addition to `-N` short form
-- **Approach**: Reference impl - adapt to our GitGlobalOpts pattern
-- **Test**: `rtk git log -n 3` should show exactly 3 commits
+- **Status**: Already implemented in previous sync. `parse_user_limit()` at `src/git.rs:370` handles `-N`, `--max-count=N`, and `-n N` forms.
+- **No work needed.**
 
 ### P1.2 - Preserve commit body in git log (#546)
 
@@ -198,17 +192,10 @@ These MUST be ported in strict order due to overlapping code:
 
 Flags and commands that silently break or error instead of passing through.
 
-### P2.1 - Passthrough fallback on Clap parse failure (#200)
+### P2.1 - Passthrough fallback on Clap parse failure (#200) -- ALREADY DONE
 
-- **Upstream PR**: #200 - "feat: passthrough fallback when Clap parse fails"
-- **Upstream commit**: `772b501`
-- **Files**: `src/main.rs`, `src/gain.rs`, `src/tracking.rs`
-- **Stats**: +427/-14, 9 files
-- **Problem**: When RTK doesn't recognize a subcommand (e.g. `rtk git worktree list`), Clap errors out instead of passing through to the raw command
-- **Fix**: Catch Clap parse errors, fall back to executing the raw command
-- **Approach**: HIGH conflict risk - touches main.rs extensively. Reference impl, adapt to our routing.
-- **Note**: This is from v0.24.0 era. Our main.rs has diverged significantly. Manual adaptation required.
-- **Test**: `rtk git worktree list` should work even though "worktree" isn't a known subcommand
+- **Status**: Already implemented. `should_fallback()` at `src/main.rs:1802` handles `InvalidSubcommand`, `UnknownArgument`, `InvalidValue`, `NoEquals` errors. Falls back via `run_fallback()`.
+- **No work needed.**
 
 ### P2.2 - gh: passthrough --comments flag (#720, #775)
 
