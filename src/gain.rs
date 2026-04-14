@@ -218,7 +218,8 @@ pub fn run(
                 println!("{}", styled("Recent Commands", true)); // added: styled header
                 println!("──────────────────────────────────────────────────────────");
                 for rec in recent {
-                    let time = rec.timestamp.format("%m-%d %H:%M");
+                    let local_time = rec.timestamp.with_timezone(&chrono::Local);
+                    let time = local_time.format("%m-%d %H:%M");
                     let cmd_short = if rec.rtk_cmd.len() > 25 {
                         format!("{}...", &rec.rtk_cmd[..22])
                     } else {
@@ -594,4 +595,27 @@ fn export_csv(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn test_timestamp_local_conversion() {
+        // Create a known UTC timestamp (2026-04-14 14:30:00 UTC)
+        let utc_dt = Utc.with_ymd_and_hms(2026, 4, 14, 14, 30, 0).unwrap();
+
+        // Convert to local
+        let local_dt = utc_dt.with_timezone(&chrono::Local);
+
+        // Format as MM-DD HH:MM
+        let formatted = local_dt.format("%m-%d %H:%M").to_string();
+
+        // Should produce a valid string of length 11 (MM-DD HH:MM format)
+        assert_eq!(formatted.len(), 11);
+
+        // Should start with the month-day portion
+        assert!(formatted.starts_with("04-14"));
+    }
 }
