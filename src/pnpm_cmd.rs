@@ -611,4 +611,52 @@ mod tests {
         let _args: Vec<OsString> = vec![OsString::from("help")];
         // Compile-time verification that the function exists with correct signature
     }
+
+    #[test]
+    fn test_pnpm_list_parser_array_json() {
+        // pnpm can return array format: [{...}]
+        let json = r#"[
+            {
+                "my-project": {
+                    "version": "1.0.0",
+                    "dependencies": {
+                        "express": {
+                            "version": "4.18.2"
+                        }
+                    }
+                }
+            }
+        ]"#;
+
+        let result = PnpmListParser::parse(json);
+        assert_eq!(result.tier(), 1);
+        assert!(result.is_ok());
+
+        let data = result.unwrap();
+        assert!(data.total_packages >= 2);
+    }
+
+    #[test]
+    fn test_pnpm_list_parser_empty_array() {
+        // Empty array should not error
+        let json = r#"[]"#;
+
+        let result = PnpmListParser::parse(json);
+        // Should parse successfully even if empty
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_filter_arg_construction() {
+        // Verify --filter is passed through correctly
+        let args = vec!["--filter".to_string(), "my-workspace".to_string()];
+
+        // This test verifies that build_pnpm_list_args preserves --filter
+        let cmd_args = build_pnpm_list_args(2, &args);
+
+        assert!(cmd_args.contains(&"--filter".to_string()));
+        assert!(cmd_args.contains(&"my-workspace".to_string()));
+        assert!(cmd_args.contains(&"--depth=2".to_string()));
+        assert!(cmd_args.contains(&"--json".to_string()));
+    }
 }
