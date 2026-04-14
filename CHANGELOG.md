@@ -5,6 +5,42 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0](https://github.com/maxkulish/rtk/compare/v0.25.1...v0.26.0) (2026-04-14)
+
+
+### Features
+
+* **aws:** expand CLI filters from 8 to 15 subcommands ([20ef950](https://github.com/maxkulish/rtk/commit/20ef950ecc4c2a14a156a0c53c473150a3147040))
+* **sync:** port 26 upstream fixes from v0.34.0-&gt;v0.36.0 ([0bbd8bd](https://github.com/maxkulish/rtk/commit/0bbd8bdb4d2f49bcea44df41af4abca979426945))
+* **toml:** add Liquibase database migration filter ([c0e2f64](https://github.com/maxkulish/rtk/commit/c0e2f64f8ad0dd2e4df7a1a804a39cc7a243d167))
+
+
+### Bug Fixes
+
+* **cargo:** show Finished line in build output; preserve full clippy error blocks ([fe1893f](https://github.com/maxkulish/rtk/commit/fe1893f8aaa8d45ae3af12997c931ed87a90c6b3))
+* **curl:** skip JSON schema conversion for localhost/internal URLs ([9984632](https://github.com/maxkulish/rtk/commit/998463212d8539870da52f6d6d71cbed512d1359))
+* **find:** include hidden files when pattern targets dotfiles ([d23bf0d](https://github.com/maxkulish/rtk/commit/d23bf0db0fcfb6426d33b2210593eef2d76d5a6b))
+* **gh:** pass through actual gh pr merge output ([f933867](https://github.com/maxkulish/rtk/commit/f933867019cffdd87c7bfc3e6c991158997b4b37))
+* **git:** inherit stdin for commit and push to preserve SSH signing ([2d757ab](https://github.com/maxkulish/rtk/commit/2d757ab2942973d9fec1d2ab86d514ef1bff94b0))
+* **git:** re-insert -- separator when clap consumes it from git diff args ([fb0220f](https://github.com/maxkulish/rtk/commit/fb0220f902c3935d0ce3af2f74baad62f3164b01))
+* **git:** remove -u short alias from --ultra-compact ([d85e903](https://github.com/maxkulish/rtk/commit/d85e903362974ab429d08df53e4ac0f0aed1686b))
+* **go:** 4 filter improvements from upstream v0.35.0-v0.36.0 ([d5d2535](https://github.com/maxkulish/rtk/commit/d5d2535f398b7f6871293d0695ff0358983bc316))
+* **golangci-lint:** run wrapper, global flags, discover flag preservation ([1c97408](https://github.com/maxkulish/rtk/commit/1c974081292f56de88506a59dbd2b8efe4e44ac0))
+* **grep:** close subprocess stdin to prevent fd leak ([3f5360c](https://github.com/maxkulish/rtk/commit/3f5360ca1025bc5aa6934fb0c6186f66b9aa6e31))
+* **pnpm:** restore list command and add --filter support ([992c524](https://github.com/maxkulish/rtk/commit/992c524dcab8fd0b78360a63ae91846c9b68f1e6))
+* **psql:** pass -h through to psql as host flag ([fdc20de](https://github.com/maxkulish/rtk/commit/fdc20de278adf285deba7d08d8ae3c462c131a24))
+* **pytest:** detect -q mode summary line correctly ([0a625e3](https://github.com/maxkulish/rtk/commit/0a625e319cda709709ccf5c750bc2e93c783efed))
+* **rewrite:** skip cat rewrite when incompatible flags are present ([bad6c89](https://github.com/maxkulish/rtk/commit/bad6c89b134bbd01c5f8dbaa1fe1c26fdd84925b))
+* **sync:** container exit codes, idiomatic Option, lazy regex (upstream [#626](https://github.com/maxkulish/rtk/issues/626)) ([870550f](https://github.com/maxkulish/rtk/commit/870550fe9b76b423b05d0073a97cae129d6e0bdd))
+* **sync:** exact truncation counts in compact_diff (upstream [#833](https://github.com/maxkulish/rtk/issues/833)) ([58db1fe](https://github.com/maxkulish/rtk/commit/58db1feb5ac7a044de708e05f05d72f472d8a4ff))
+* **sync:** never truncate diff content (upstream [#827](https://github.com/maxkulish/rtk/issues/827)) ([2c551df](https://github.com/maxkulish/rtk/commit/2c551dff212043f99b1a502186e861a06b88361f))
+* **sync:** preserve cargo test compile diagnostics (upstream [#738](https://github.com/maxkulish/rtk/issues/738)) ([a437472](https://github.com/maxkulish/rtk/commit/a4374725be7d838ef32cde956e55b39b402247c6))
+* **sync:** preserve commit body in git log output (upstream [#546](https://github.com/maxkulish/rtk/issues/546)) ([1fbe002](https://github.com/maxkulish/rtk/commit/1fbe0024d453d7c3d2a1e22c8956c1438cffb20e))
+* **sync:** prevent git log --oneline from dropping commits (upstream [#619](https://github.com/maxkulish/rtk/issues/619)) ([ff6f36a](https://github.com/maxkulish/rtk/commit/ff6f36ac6db4e135945c745bef4bc86a0bb361b1))
+* **sync:** read defaults to no filtering, detect binary files (upstream [#822](https://github.com/maxkulish/rtk/issues/822)) ([799e551](https://github.com/maxkulish/rtk/commit/799e5517d8cdb05e83bf63034eb501dacf48d8e1))
+* **tee:** prevent panic on UTF-8 multi-byte truncation boundary ([c869d46](https://github.com/maxkulish/rtk/commit/c869d46457ea800f554040fe0e0790318197f16d))
+* **tracking:** use std::env::temp_dir() for cross-platform compatibility ([278c302](https://github.com/maxkulish/rtk/commit/278c30206fcbc19c93c19dfb7ccda6fc3575554e))
+
 ## [0.25.1](https://github.com/maxkulish/rtk/compare/v0.25.0...v0.25.1) (2026-03-27)
 
 
