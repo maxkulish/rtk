@@ -1156,11 +1156,11 @@ mod tests {
     #[test]
     fn test_custom_db_path_env() {
         let _lock = ENV_MUTEX.lock().unwrap();
-        let custom_path = "/tmp/rtk_test_custom.db";
-        std::env::set_var("RTK_DB_PATH", custom_path);
+        let custom_path = std::env::temp_dir().join("rtk_test_custom.db");
+        std::env::set_var("RTK_DB_PATH", custom_path.to_string_lossy().as_ref());
 
         let db_path = get_db_path().expect("Failed to get db path");
-        assert_eq!(db_path, PathBuf::from(custom_path));
+        assert_eq!(db_path, custom_path);
 
         std::env::remove_var("RTK_DB_PATH");
     }
@@ -1173,6 +1173,26 @@ mod tests {
 
         let db_path = get_db_path().expect("Failed to get db path");
         assert!(db_path.ends_with("rtk/history.db"));
+    }
+
+    // Verify temp_dir() returns a valid writable directory
+    #[test]
+    fn test_temp_dir_is_writable() {
+        let temp_dir = std::env::temp_dir();
+
+        // Should exist
+        assert!(temp_dir.exists());
+
+        // Should be a directory
+        assert!(temp_dir.is_dir());
+
+        // Should be writable (test by creating a temp file)
+        let test_file = temp_dir.join("rtk_test_write.tmp");
+        let write_result = std::fs::write(&test_file, b"test");
+        assert!(write_result.is_ok());
+
+        // Cleanup
+        let _ = std::fs::remove_file(&test_file);
     }
 
     // 9. detect_project_root finds .git directory
