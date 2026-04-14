@@ -64,6 +64,27 @@ pub fn run(subcommand: &str, args: &[String], verbose: u8) -> Result<()> {
         "cloudformation" if !args.is_empty() && args[0] == "describe-stacks" => {
             run_cfn_describe_stacks(&args[1..], verbose)
         }
+        "lambda" if !args.is_empty() && args[0] == "list-functions" => {
+            run_lambda_list_functions(&args[1..], verbose)
+        }
+        "sqs" if !args.is_empty() && args[0] == "list-queues" => {
+            run_sqs_list_queues(&args[1..], verbose)
+        }
+        "sns" if !args.is_empty() && args[0] == "list-topics" => {
+            run_sns_list_topics(&args[1..], verbose)
+        }
+        "dynamodb" if !args.is_empty() && args[0] == "list-tables" => {
+            run_dynamodb_list_tables(&args[1..], verbose)
+        }
+        "logs" if !args.is_empty() && args[0] == "describe-log-groups" => {
+            run_logs_describe_log_groups(&args[1..], verbose)
+        }
+        "ssm" if !args.is_empty() && args[0] == "describe-parameters" => {
+            run_ssm_describe_parameters(&args[1..], verbose)
+        }
+        "secretsmanager" if !args.is_empty() && args[0] == "list-secrets" => {
+            run_secretsmanager_list_secrets(&args[1..], verbose)
+        }
         _ => run_generic(subcommand, args, verbose, &full_sub),
     }
 }
@@ -595,6 +616,372 @@ fn filter_cfn_describe_stacks(json_str: &str) -> Option<String> {
     Some(join_with_overflow(&result, total, MAX_ITEMS, "stacks"))
 }
 
+fn run_lambda_list_functions(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) = run_aws_json(&["lambda", "list-functions"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws lambda list-functions",
+            "rtk aws lambda list-functions",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_lambda_list_functions(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws lambda list-functions",
+        "rtk aws lambda list-functions",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn run_sqs_list_queues(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) = run_aws_json(&["sqs", "list-queues"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws sqs list-queues",
+            "rtk aws sqs list-queues",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_sqs_list_queues(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws sqs list-queues",
+        "rtk aws sqs list-queues",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn run_sns_list_topics(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) = run_aws_json(&["sns", "list-topics"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws sns list-topics",
+            "rtk aws sns list-topics",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_sns_list_topics(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws sns list-topics",
+        "rtk aws sns list-topics",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn run_dynamodb_list_tables(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) = run_aws_json(&["dynamodb", "list-tables"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws dynamodb list-tables",
+            "rtk aws dynamodb list-tables",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_dynamodb_list_tables(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws dynamodb list-tables",
+        "rtk aws dynamodb list-tables",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn run_logs_describe_log_groups(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) =
+        run_aws_json(&["logs", "describe-log-groups"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws logs describe-log-groups",
+            "rtk aws logs describe-log-groups",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_logs_describe_log_groups(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws logs describe-log-groups",
+        "rtk aws logs describe-log-groups",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn run_ssm_describe_parameters(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) = run_aws_json(&["ssm", "describe-parameters"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws ssm describe-parameters",
+            "rtk aws ssm describe-parameters",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_ssm_describe_parameters(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws ssm describe-parameters",
+        "rtk aws ssm describe-parameters",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn run_secretsmanager_list_secrets(extra_args: &[String], verbose: u8) -> Result<()> {
+    let timer = tracking::TimedExecution::start();
+    let (raw, stderr, status) =
+        run_aws_json(&["secretsmanager", "list-secrets"], extra_args, verbose)?;
+
+    if !status.success() {
+        timer.track(
+            "aws secretsmanager list-secrets",
+            "rtk aws secretsmanager list-secrets",
+            &stderr,
+            &stderr,
+        );
+        std::process::exit(status.code().unwrap_or(1));
+    }
+
+    let filtered = match filter_secretsmanager_list_secrets(&raw) {
+        Some(f) => f,
+        None => raw.clone(),
+    };
+    println!("{}", filtered);
+
+    timer.track(
+        "aws secretsmanager list-secrets",
+        "rtk aws secretsmanager list-secrets",
+        &raw,
+        &filtered,
+    );
+    Ok(())
+}
+
+fn filter_lambda_list_functions(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let functions = v["Functions"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = functions.len();
+    result.push(format!("Lambda: {} functions", total));
+
+    for func in functions.iter().take(MAX_ITEMS) {
+        let name = func["FunctionName"].as_str().unwrap_or("?");
+        let runtime = func["Runtime"].as_str().unwrap_or("?");
+        let mem = func["MemorySize"].as_u64().unwrap_or(0);
+        let updated = func["LastModified"]
+            .as_str()
+            .map(truncate_iso_date)
+            .unwrap_or("?");
+
+        result.push(format!("  {} {} {}MB {}", name, runtime, mem, updated));
+    }
+
+    if total > MAX_ITEMS {
+        result.push(format!("  ... +{} more", total - MAX_ITEMS));
+    }
+
+    Some(result.join("\n"))
+}
+
+fn filter_sqs_list_queues(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let urls = v["QueueUrls"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = urls.len();
+
+    for url in urls.iter().take(MAX_ITEMS) {
+        if let Some(url_str) = url.as_str() {
+            // Extract queue name from URL (last segment)
+            let name = url_str.split('/').next_back().unwrap_or(url_str);
+            result.push(name.to_string());
+        }
+    }
+
+    Some(join_with_overflow(&result, total, MAX_ITEMS, "queues"))
+}
+
+fn filter_sns_list_topics(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let topics = v["Topics"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = topics.len();
+
+    for topic in topics.iter().take(MAX_ITEMS) {
+        if let Some(arn) = topic["TopicArn"].as_str() {
+            // Extract topic name from ARN (last segment)
+            let name = arn.split(':').next_back().unwrap_or(arn);
+            result.push(name.to_string());
+        }
+    }
+
+    Some(join_with_overflow(&result, total, MAX_ITEMS, "topics"))
+}
+
+fn filter_dynamodb_list_tables(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let tables = v["TableNames"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = tables.len();
+
+    for table in tables.iter().take(MAX_ITEMS) {
+        if let Some(name) = table.as_str() {
+            result.push(name.to_string());
+        }
+    }
+
+    Some(join_with_overflow(&result, total, MAX_ITEMS, "tables"))
+}
+
+fn filter_logs_describe_log_groups(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let groups = v["logGroups"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = groups.len();
+    result.push(format!("CloudWatch Logs: {} groups", total));
+
+    for group in groups.iter().take(MAX_ITEMS) {
+        let name = group["logGroupName"].as_str().unwrap_or("?");
+        let size_mb = group["storedBytes"].as_u64().unwrap_or(0) / 1_048_576;
+        let created = group["creationTime"]
+            .as_u64()
+            .map(|ts| format!("{}", ts / 1000)) // Convert ms to s
+            .unwrap_or_else(|| "?".to_string());
+
+        result.push(format!("  {} {}MB created:{}", name, size_mb, created));
+    }
+
+    if total > MAX_ITEMS {
+        result.push(format!("  ... +{} more", total - MAX_ITEMS));
+    }
+
+    Some(result.join("\n"))
+}
+
+fn filter_ssm_describe_parameters(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let params = v["Parameters"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = params.len();
+    result.push(format!("SSM Parameters: {}", total));
+
+    for param in params.iter().take(MAX_ITEMS) {
+        let name = param["Name"].as_str().unwrap_or("?");
+        let param_type = param["Type"].as_str().unwrap_or("?");
+        let modified = param["LastModifiedDate"]
+            .as_str()
+            .map(truncate_iso_date)
+            .unwrap_or("?");
+
+        result.push(format!("  {} {} {}", name, param_type, modified));
+    }
+
+    if total > MAX_ITEMS {
+        result.push(format!("  ... +{} more", total - MAX_ITEMS));
+    }
+
+    Some(result.join("\n"))
+}
+
+fn filter_secretsmanager_list_secrets(json_str: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(json_str).ok()?;
+    let secrets = v["SecretList"].as_array()?;
+
+    let mut result: Vec<String> = Vec::new();
+    let total = secrets.len();
+    result.push(format!("Secrets Manager: {} secrets", total));
+
+    for secret in secrets.iter().take(MAX_ITEMS) {
+        let name = secret["Name"].as_str().unwrap_or("?");
+        let updated = secret["LastChangedDate"]
+            .as_str()
+            .map(truncate_iso_date)
+            .unwrap_or("?");
+        let rotation = if secret["RotationEnabled"].as_bool().unwrap_or(false) {
+            "rotated"
+        } else {
+            "manual"
+        };
+
+        result.push(format!("  {} {} {}", name, rotation, updated));
+    }
+
+    if total > MAX_ITEMS {
+        result.push(format!("  ... +{} more", total - MAX_ITEMS));
+    }
+
+    Some(result.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,5 +1281,168 @@ mod tests {
         let json = format!(r#"{{"DBInstances": [{}]}}"#, dbs.join(","));
         let result = filter_rds_instances(&json).unwrap();
         assert!(result.contains("... +5 more instances"));
+    }
+
+    #[test]
+    fn test_filter_lambda_list_functions() {
+        let json = r#"{
+            "Functions": [
+                {
+                    "FunctionName": "api-handler",
+                    "Runtime": "nodejs20.x",
+                    "MemorySize": 512,
+                    "LastModified": "2024-01-15T10:30:00.000+0000"
+                },
+                {
+                    "FunctionName": "worker-queue",
+                    "Runtime": "python3.12",
+                    "MemorySize": 1024,
+                    "LastModified": "2024-01-16T14:00:00.000+0000"
+                }
+            ]
+        }"#;
+        let result = filter_lambda_list_functions(json).unwrap();
+        assert!(result.contains("Lambda: 2 functions"));
+        assert!(result.contains("api-handler nodejs20.x 512MB 2024-01-15"));
+        assert!(result.contains("worker-queue python3.12 1024MB 2024-01-16"));
+    }
+
+    #[test]
+    fn test_filter_sqs_list_queues() {
+        let json = r#"{
+            "QueueUrls": [
+                "https://sqs.us-east-1.amazonaws.com/123456789012/orders-queue",
+                "https://sqs.us-east-1.amazonaws.com/123456789012/notifications-queue"
+            ]
+        }"#;
+        let result = filter_sqs_list_queues(json).unwrap();
+        assert!(result.contains("orders-queue"));
+        assert!(result.contains("notifications-queue"));
+        assert!(!result.contains("https://"));
+    }
+
+    #[test]
+    fn test_filter_sns_list_topics() {
+        let json = r#"{
+            "Topics": [
+                {"TopicArn": "arn:aws:sns:us-east-1:123456789012:alerts"},
+                {"TopicArn": "arn:aws:sns:us-east-1:123456789012:updates"}
+            ]
+        }"#;
+        let result = filter_sns_list_topics(json).unwrap();
+        assert!(result.contains("alerts"));
+        assert!(result.contains("updates"));
+        assert!(!result.contains("arn:aws:"));
+    }
+
+    #[test]
+    fn test_filter_dynamodb_list_tables() {
+        let json = r#"{
+            "TableNames": ["users", "sessions", "products"]
+        }"#;
+        let result = filter_dynamodb_list_tables(json).unwrap();
+        assert!(result.contains("users"));
+        assert!(result.contains("sessions"));
+        assert!(result.contains("products"));
+    }
+
+    #[test]
+    fn test_filter_logs_describe_log_groups() {
+        let json = r#"{
+            "logGroups": [
+                {
+                    "logGroupName": "/aws/lambda/api-handler",
+                    "storedBytes": 10485760,
+                    "creationTime": 1705320000000
+                },
+                {
+                    "logGroupName": "/ecs/production",
+                    "storedBytes": 52428800,
+                    "creationTime": 1705330000000
+                }
+            ]
+        }"#;
+        let result = filter_logs_describe_log_groups(json).unwrap();
+        assert!(result.contains("CloudWatch Logs: 2 groups"));
+        assert!(result.contains("/aws/lambda/api-handler 10MB"));
+        assert!(result.contains("/ecs/production 50MB"));
+    }
+
+    #[test]
+    fn test_filter_ssm_describe_parameters() {
+        let json = r#"{
+            "Parameters": [
+                {
+                    "Name": "/app/database/host",
+                    "Type": "String",
+                    "LastModifiedDate": "2024-01-15T10:00:00.000Z"
+                },
+                {
+                    "Name": "/app/api/key",
+                    "Type": "SecureString",
+                    "LastModifiedDate": "2024-01-16T12:00:00.000Z"
+                }
+            ]
+        }"#;
+        let result = filter_ssm_describe_parameters(json).unwrap();
+        assert!(result.contains("SSM Parameters: 2"));
+        assert!(result.contains("/app/database/host String 2024-01-15"));
+        assert!(result.contains("/app/api/key SecureString 2024-01-16"));
+    }
+
+    #[test]
+    fn test_filter_secretsmanager_list_secrets() {
+        let json = r#"{
+            "SecretList": [
+                {
+                    "Name": "prod/db/password",
+                    "LastChangedDate": "2024-01-15T10:00:00.000Z",
+                    "RotationEnabled": true
+                },
+                {
+                    "Name": "api/github/token",
+                    "LastChangedDate": "2024-01-16T12:00:00.000Z",
+                    "RotationEnabled": false
+                }
+            ]
+        }"#;
+        let result = filter_secretsmanager_list_secrets(json).unwrap();
+        assert!(result.contains("Secrets Manager: 2 secrets"));
+        assert!(result.contains("prod/db/password rotated 2024-01-15"));
+        assert!(result.contains("api/github/token manual 2024-01-16"));
+    }
+
+    #[test]
+    fn test_lambda_token_savings() {
+        let json = r#"{
+            "Functions": [
+                {
+                    "FunctionName": "test-function",
+                    "FunctionArn": "arn:aws:lambda:us-east-1:123456789012:function:test-function",
+                    "Runtime": "python3.12",
+                    "Role": "arn:aws:iam::123456789012:role/service-role/test-function-role",
+                    "Handler": "lambda_function.lambda_handler",
+                    "CodeSize": 1024,
+                    "Description": "Test function",
+                    "Timeout": 30,
+                    "MemorySize": 128,
+                    "LastModified": "2024-01-15T10:30:00.000+0000",
+                    "CodeSha256": "abcdef123456",
+                    "Version": "$LATEST",
+                    "Environment": {},
+                    "TracingConfig": {},
+                    "RevisionId": "xyz789",
+                    "State": "Active",
+                    "LastUpdateStatus": "Successful"
+                }
+            ]
+        }"#;
+        let filtered = filter_lambda_list_functions(json).unwrap();
+        let savings = 100.0 - (count_tokens(&filtered) as f64 / count_tokens(json) as f64 * 100.0);
+        assert!(
+            savings >= 60.0,
+            "lambda filter must save >=60% tokens, got {:.1}%",
+            savings
+        );
     }
 }
