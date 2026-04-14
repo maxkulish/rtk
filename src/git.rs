@@ -83,12 +83,40 @@ pub fn run(
     }
 }
 
+/// Re-insert `--` path separator when clap's trailing_var_arg has consumed it.
+///
+/// clap with trailing_var_arg=true silently drops `--` when it is the first
+/// positional argument. This causes `rtk git diff -- file` to arrive as
+/// `["file"]`, making git treat the path as a revision and emit
+/// "fatal: ambiguous argument". We re-insert `--` before the first
+/// path-like argument (contains `/` or `\`, or starts with `.` or `~`)
+/// when `--` is absent from the args vec.
+fn normalize_diff_args(args: &[String]) -> Vec<String> {
+    if args.iter().any(|a| a == "--") {
+        return args.to_vec();
+    }
+    let path_idx = args.iter().position(|a| {
+        a.contains('/') || a.contains('\\') || a.starts_with('.') || a.starts_with('~')
+    });
+    match path_idx {
+        Some(idx) => {
+            let mut result = args[..idx].to_vec();
+            result.push("--".to_string());
+            result.extend_from_slice(&args[idx..]);
+            result
+        }
+        None => args.to_vec(),
+    }
+}
+
 fn run_diff(
     args: &[String],
     max_lines: Option<usize>,
     verbose: u8,
     opts: &GitGlobalOpts,
 ) -> Result<()> {
+    let normalized = normalize_diff_args(args);
+    let args = normalized.as_slice();
     let timer = tracking::TimedExecution::start();
 
     // Check if user wants stat output
@@ -2175,5 +2203,44 @@ no changes added to commit (use "git add" and/or "git commit -a")
             ]),
             Some(20)
         );
+    }
+
+    #[test]
+    fn test_normalize_diff_args_reinserts_separator() {
+        let args = vec!["src/foo.rs".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["--", "src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_preserves_existing_separator() {
+        let args = vec![
+            "HEAD".to_string(),
+            "--".to_string(),
+            "src/foo.rs".to_string(),
+        ];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["HEAD", "--", "src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_leaves_revisions_alone() {
+        let args = vec!["HEAD~1".to_string(), "HEAD".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["HEAD~1", "HEAD"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_detects_relative_path() {
+        let args = vec!["./src/foo.rs".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["--", "./src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_revision_then_path() {
+        let args = vec!["HEAD".to_string(), "src/foo.rs".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["HEAD", "--", "src/foo.rs"]);
     }
 }
