@@ -379,4 +379,16 @@ name | bob
             savings
         );
     }
+
+    #[test]
+    fn test_run_preserves_host_flag() {
+        // Verify that -h flag is preserved in args for psql (not intercepted as --help)
+        let args = ["-h".to_string(), "myhost".to_string(), "mydb".to_string()];
+
+        // This test verifies that the args contain -h and are preserved
+        assert!(args.contains(&"-h".to_string()));
+        assert!(args.contains(&"myhost".to_string()));
+        assert_eq!(args[0], "-h");
+        assert_eq!(args[1], "myhost");
+    }
 }

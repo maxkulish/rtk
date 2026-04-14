@@ -567,6 +567,7 @@ enum Commands {
     },
 
     /// PostgreSQL client with compact output (strip borders, compress tables)
+    #[command(disable_help_flag = true)]
     Psql {
         /// psql arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -1937,6 +1938,18 @@ fn run_fallback(args: &[OsString]) -> Result<()> {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn test_psql_preserves_host_flag() {
+        // Verify that -h is not intercepted as --help for psql
+        let cli = Cli::try_parse_from(["rtk", "psql", "-h", "myhost", "mydb"]).unwrap();
+        match cli.command {
+            Commands::Psql { args } => {
+                assert_eq!(args, vec!["-h", "myhost", "mydb"]);
+            }
+            _ => panic!("Expected Psql command"),
+        }
+    }
 
     #[test]
     fn test_git_commit_single_message() {
