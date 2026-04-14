@@ -1,7 +1,7 @@
 use crate::tracking;
 use anyhow::{Context, Result};
 use std::ffi::OsString;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone, Default)]
 pub struct GitGlobalOpts {
@@ -902,6 +902,7 @@ fn run_commit(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> 
     }
 
     let output = build_commit_command(args, opts)
+        .stdin(Stdio::inherit())
         .output()
         .context("Failed to run git commit")?;
 
@@ -965,7 +966,10 @@ fn run_push(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
         cmd.arg(arg);
     }
 
-    let output = cmd.output().context("Failed to run git push")?;
+    let output = cmd
+        .stdin(Stdio::inherit())
+        .output()
+        .context("Failed to run git push")?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
