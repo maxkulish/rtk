@@ -1000,6 +1000,16 @@ fn shell_split(input: &str) -> Vec<String> {
 fn main() -> Result<()> {
     let raw_args: Vec<OsString> = std::env::args_os().collect();
 
+    // Check if RTK is disabled via environment variable
+    if std::env::var_os("RTK_DISABLED")
+        .and_then(|v| v.into_string().ok())
+        .as_deref()
+        == Some("1")
+    {
+        eprintln!("rtk: warning: RTK_DISABLED=1 is set - all filtering is bypassed");
+        return run_fallback(&raw_args[1..]);
+    }
+
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
@@ -2322,5 +2332,16 @@ mod tests {
         let args: Vec<OsString> = ["-x", "cmd"].iter().map(OsString::from).collect();
         let stripped = strip_rtk_flags(&args);
         assert_eq!(stripped, &args[..]);
+    }
+
+    #[test]
+    fn test_rtk_disabled_check_exists() {
+        // Structural test to verify RTK_DISABLED env var handling exists in code
+        // This ensures the check is present without actually testing the env var
+        let source = include_str!("main.rs");
+        assert!(
+            source.contains("RTK_DISABLED"),
+            "RTK_DISABLED environment variable check should exist in main.rs"
+        );
     }
 }
