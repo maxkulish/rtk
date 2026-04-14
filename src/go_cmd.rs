@@ -35,6 +35,7 @@ struct PackageResult {
     failed_tests: Vec<(String, Vec<String>)>, // (test_name, output_lines)
     build_failed: bool,
     build_output: Vec<String>,
+    package_output: Vec<String>, // Package-level output (timeout/panic)
 }
 
 pub fn run_test(args: &[String], verbose: u8) -> Result<()> {
@@ -289,6 +290,12 @@ fn filter_go_test_json(output: &str) -> String {
                     // Package-level fail with FailedBuild field = build failure
                     pkg_result.build_failed = true;
                     pkg_result.fail += 1;
+                } else {
+                    // Package-level fail without Test field and without FailedBuild
+                    // Only count if no test-level failures exist (prevents double-counting)
+                    if pkg_result.fail == 0 {
+                        pkg_result.fail += 1;
+                    }
                 }
             }
             "skip" => {
@@ -297,13 +304,21 @@ fn filter_go_test_json(output: &str) -> String {
                 }
             }
             "output" => {
-                // Collect output for current test
-                if let (Some(test), Some(output_text)) = (&event.test, &event.output) {
-                    let key = (package.clone(), test.clone());
-                    current_test_output
-                        .entry(key)
-                        .or_default()
-                        .push(output_text.trim_end().to_string());
+                if let Some(output_text) = &event.output {
+                    if let Some(test) = &event.test {
+                        // Test-level output
+                        let key = (package.clone(), test.clone());
+                        current_test_output
+                            .entry(key)
+                            .or_default()
+                            .push(output_text.trim_end().to_string());
+                    } else {
+                        // Package-level output (timeout/panic messages)
+                        let trimmed = output_text.trim_end();
+                        if !trimmed.is_empty() {
+                            pkg_result.package_output.push(trimmed.to_string());
+                        }
+                    }
                 }
             }
             "build-output" => {
@@ -389,13 +404,28 @@ fn filter_go_test_json(output: &str) -> String {
                             || lower.contains("expected")
                             || lower.contains("got")
                             || lower.contains("panic")
-                            || line.trim().starts_with("at "))
+                            || line.trim().starts_with("at ")
+                            || line.contains("_test.go:")) // Preserve test location (file:line)
                 })
                 .take(5)
                 .collect();
 
             for line in relevant_lines {
                 result.push_str(&format!("     {}\n", truncate(line, 100)));
+            }
+        }
+
+        // Show package-level output (timeout/panic messages) if no test failures
+        if pkg_result.failed_tests.is_empty() && !pkg_result.package_output.is_empty() {
+            for line in &pkg_result.package_output {
+                let trimmed = line.trim();
+                if !trimmed.is_empty()
+                    && (trimmed.to_lowercase().contains("panic")
+                        || trimmed.to_lowercase().contains("timed out")
+                        || trimmed.to_lowercase().contains("timeout"))
+                {
+                    result.push_str(&format!("  {}\n", truncate(trimmed, 120)));
+                }
             }
         }
     }
@@ -413,6 +443,11 @@ fn filter_go_build(output: &str) -> String {
 
         // Skip package markers (# package/name lines without errors)
         if trimmed.starts_with('#') && !lower.contains("error") {
+            continue;
+        }
+
+        // Skip module download/finding lines (go: downloading, go: finding)
+        if trimmed.starts_with("go: downloading ") || trimmed.starts_with("go: finding ") {
             continue;
         }
 
@@ -586,6 +621,84 @@ utils.go:15:5: unreachable code"#;
         assert!(
             result.contains("undefinedVariable"),
             "Should show compiler error: {result}"
+        );
+    }
+
+    #[test]
+    fn test_filter_go_build_ignores_module_downloads() {
+        // Issue 1: go: downloading/finding lines should not appear as build errors
+        // Even if they contain "error" keyword (e.g., go: finding module error-handling)
+        let output = r#"go: downloading github.com/stretchr/testify v1.8.0
+go: finding module for package example.com/error-handling
+go: downloading golang.org/x/sys v0.0.0-20220715151400-c0bba94af5f8
+# example.com/myapp
+main.go:10:5: undefined: missingFunc"#;
+
+        let result = filter_go_build(output);
+        assert!(
+            !result.contains("downloading"),
+            "Should not show module download lines as errors, got: {}",
+            result
+        );
+        assert!(
+            !result.contains("finding"),
+            "Should not show module finding lines as errors, got: {}",
+            result
+        );
+        assert!(
+            result.contains("undefined: missingFunc"),
+            "Should still show real errors, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_go_test_no_double_count_package_fail() {
+        // Issue 2: Package-level fail after test-level fail should not double-count
+        let output = r#"{"Time":"2024-01-01T10:00:00Z","Action":"run","Package":"example.com/foo","Test":"TestFail"}
+{"Time":"2024-01-01T10:00:01Z","Action":"output","Package":"example.com/foo","Test":"TestFail","Output":"=== RUN   TestFail\n"}
+{"Time":"2024-01-01T10:00:02Z","Action":"output","Package":"example.com/foo","Test":"TestFail","Output":"    Error: test failed\n"}
+{"Time":"2024-01-01T10:00:03Z","Action":"fail","Package":"example.com/foo","Test":"TestFail","Elapsed":0.5}
+{"Time":"2024-01-01T10:00:03Z","Action":"fail","Package":"example.com/foo","Elapsed":0.5}"#;
+
+        let result = filter_go_test_json(output);
+        // Should report 1 failure, not 2
+        assert!(
+            result.contains("1 failed") && !result.contains("2 failed"),
+            "Should count 1 failure (not double-count package-level fail), got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_go_test_preserves_location() {
+        // Issue 3: Failing test location (file:line) should be preserved
+        let output = r#"{"Time":"2024-01-01T10:00:00Z","Action":"run","Package":"example.com/foo","Test":"TestBar"}
+{"Time":"2024-01-01T10:00:01Z","Action":"output","Package":"example.com/foo","Test":"TestBar","Output":"=== RUN   TestBar\n"}
+{"Time":"2024-01-01T10:00:02Z","Action":"output","Package":"example.com/foo","Test":"TestBar","Output":"    foo_test.go:42: assertion failed\n"}
+{"Time":"2024-01-01T10:00:03Z","Action":"fail","Package":"example.com/foo","Test":"TestBar","Elapsed":0.5}
+{"Time":"2024-01-01T10:00:03Z","Action":"fail","Package":"example.com/foo","Elapsed":0.5}"#;
+
+        let result = filter_go_test_json(output);
+        assert!(
+            result.contains("foo_test.go:42"),
+            "Should preserve test location (file:line), got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_go_test_package_timeout() {
+        // Issue 4: Package-level timeout/signal failures should be reported
+        let output = r#"{"Time":"2024-01-01T10:00:00Z","Action":"run","Package":"example.com/foo","Test":"TestSlow"}
+{"Time":"2024-01-01T10:00:01Z","Action":"output","Package":"example.com/foo","Output":"panic: test timed out after 10s\n"}
+{"Time":"2024-01-01T10:00:02Z","Action":"fail","Package":"example.com/foo","Elapsed":10.5}"#;
+
+        let result = filter_go_test_json(output);
+        assert!(
+            result.contains("timed out") || result.contains("panic"),
+            "Should report package-level timeout/panic, got: {}",
+            result
         );
     }
 }
