@@ -10,6 +10,20 @@ const DEFAULT_MAX_FILES: usize = 20;
 /// Default max file size (1MB)
 const DEFAULT_MAX_FILE_SIZE: usize = 1_048_576;
 
+/// Safely truncate a string at a UTF-8 character boundary.
+/// Walks backward from max_bytes to find a valid char boundary.
+fn safe_truncate_utf8(s: &str, max_bytes: usize) -> &str {
+    if s.len() <= max_bytes {
+        return s;
+    }
+
+    let mut pos = max_bytes;
+    while pos > 0 && !s.is_char_boundary(pos) {
+        pos -= 1;
+    }
+    &s[..pos]
+}
+
 /// Sanitize a command slug for use in filenames.
 /// Replaces non-alphanumeric chars (except underscore/hyphen) with underscore,
 /// truncates at 40 chars.
@@ -118,12 +132,13 @@ fn write_tee_file(
     let filename = format!("{}_{}.log", epoch, slug);
     let filepath = tee_dir.join(filename);
 
-    // Truncate at max_file_size
+    // Truncate at max_file_size (safely at UTF-8 boundary)
     let content = if raw.len() > max_file_size {
+        let truncated = safe_truncate_utf8(raw, max_file_size);
         format!(
             "{}\n\n--- truncated at {} bytes ---",
-            &raw[..max_file_size],
-            max_file_size
+            truncated,
+            truncated.len()
         )
     } else {
         raw.to_string()
@@ -397,5 +412,53 @@ directory = "/tmp/rtk-tee"
 
         let mode: TeeMode = serde_json::from_str(r#""never""#).unwrap();
         assert_eq!(mode, TeeMode::Never);
+    }
+
+    #[test]
+    fn test_safe_truncate_utf8_ascii() {
+        let text = "Hello, World!";
+        assert_eq!(safe_truncate_utf8(text, 5), "Hello");
+        assert_eq!(safe_truncate_utf8(text, 7), "Hello, ");
+        assert_eq!(safe_truncate_utf8(text, 100), text);
+    }
+
+    #[test]
+    fn test_safe_truncate_utf8_multibyte() {
+        // "Hello 日本語" - 日 (3 bytes), 本 (3 bytes), 語 (3 bytes)
+        let text = "Hello 日本語";
+
+        // Truncate at byte 7 (within 日) - should truncate before 日
+        let truncated = safe_truncate_utf8(text, 7);
+        assert_eq!(truncated, "Hello ");
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+
+        // Truncate at byte 10 (after 日) - should include 日
+        let truncated = safe_truncate_utf8(text, 10);
+        assert_eq!(truncated, "Hello 日");
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+
+        // Truncate within emoji (emoji are often 4 bytes)
+        let emoji_text = "Test 😀 end";
+        let truncated = safe_truncate_utf8(emoji_text, 6); // Would split emoji
+        assert_eq!(truncated, "Test ");
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn test_write_tee_file_utf8_truncation() {
+        let tmpdir = tempfile::tempdir().unwrap();
+        // Create output with multi-byte UTF-8 chars
+        let mut big_output = "x".repeat(990);
+        big_output.push_str("日本語"); // 9 bytes
+        big_output.push_str("test"); // Ensure > 1000 bytes total
+
+        // Set max_file_size to 1000 bytes - should not panic on multi-byte boundary
+        let result = write_tee_file(&big_output, "test", tmpdir.path(), 1000, 20);
+        assert!(result.is_some());
+
+        let path = result.unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert!(content.contains("--- truncated at"));
+        // Verify the truncated content is valid UTF-8 (read_to_string would fail if not)
     }
 }
