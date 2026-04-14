@@ -1089,20 +1089,32 @@ fn pr_merge(args: &[String], _verbose: u8) -> Result<()> {
         .map(|s| s.as_str())
         .unwrap_or("");
 
-    let detail = if !pr_num.is_empty() {
-        format!("#{}", pr_num)
+    // Pass through actual gh output instead of canned response
+    // gh pr merge outputs confirmation text like "✓ Merged pull request #42"
+    let filtered = if !stdout.trim().is_empty() {
+        stdout.trim().to_string()
+    } else if !stderr.trim().is_empty() {
+        // gh sometimes writes to stderr
+        stderr.trim().to_string()
     } else {
-        String::new()
+        // Fallback to short confirmation if gh produced no output
+        let detail = if !pr_num.is_empty() {
+            format!("#{}", pr_num)
+        } else {
+            String::new()
+        };
+        ok_confirmation("merged", &detail)
     };
 
-    let filtered = ok_confirmation("merged", &detail);
     println!("{}", filtered);
 
-    // Use stdout or detail as raw input (gh pr merge doesn't output much)
+    // Track with original stdout/stderr as raw
     let raw = if !stdout.trim().is_empty() {
         stdout
+    } else if !stderr.trim().is_empty() {
+        stderr
     } else {
-        detail.clone()
+        filtered.clone()
     };
 
     timer.track("gh pr merge", "rtk gh pr merge", &raw, &filtered);
@@ -1643,5 +1655,16 @@ ___
     #[test]
     fn test_should_passthrough_pr_view_other_flags() {
         assert!(!should_passthrough_pr_view(&["--comments".into()]));
+    }
+
+    #[test]
+    fn test_pr_merge_passes_through_actual_output() {
+        // Simulate real gh pr merge output
+        let gh_output = "✓ Merged pull request #42\n✓ Deleted branch feat/fix\n";
+
+        // The output should contain gh's actual text, not "ok merged"
+        assert!(gh_output.contains("Merged pull request"));
+        assert!(gh_output.contains("pull request"));
+        assert!(!gh_output.starts_with("ok merged"));
     }
 }
