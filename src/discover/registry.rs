@@ -422,6 +422,39 @@ fn extract_base_command(cmd: &str) -> &str {
 /// Rewrite a command to use RTK if it's supported.
 /// Returns Some(rewritten) if the command should be rewritten, None otherwise.
 /// Respects excluded commands from config.
+/// Check if a cat command has flags incompatible with rtk read.
+/// cat -n (line numbers), -A (show-all), and similar flags are not supported.
+fn has_incompatible_cat_flags(cmd: &str) -> bool {
+    // Incompatible flags that rtk read doesn't support
+    const INCOMPATIBLE_FLAGS: &[&str] = &[
+        "-n",
+        "--number",
+        "-A",
+        "--show-all",
+        "-b",
+        "--number-nonblank",
+        "-e",
+        "-E",
+        "--show-ends",
+        "-s",
+        "--squeeze-blank",
+        "-T",
+        "--show-tabs",
+        "-t",
+        "-v",
+        "--show-nonprinting",
+    ];
+
+    let words: Vec<&str> = cmd.split_whitespace().collect();
+    for word in words.iter().skip(1) {
+        // Skip the "cat" command itself
+        if INCOMPATIBLE_FLAGS.contains(word) {
+            return true;
+        }
+    }
+    false
+}
+
 pub fn rewrite_command(cmd: &str, excluded: &[String]) -> Option<String> {
     let trimmed = cmd.trim();
     if trimmed.is_empty() {
@@ -433,6 +466,11 @@ pub fn rewrite_command(cmd: &str, excluded: &[String]) -> Option<String> {
         if trimmed.starts_with(excl.as_str()) {
             return None;
         }
+    }
+
+    // Skip cat rewrite if incompatible flags are present
+    if trimmed.starts_with("cat ") && has_incompatible_cat_flags(trimmed) {
+        return None;
     }
 
     // Classify the command
@@ -902,6 +940,49 @@ mod tests {
     #[test]
     fn test_rewrite_already_rtk() {
         assert_eq!(rewrite_command("rtk git status", &[]), None);
+    }
+
+    #[test]
+    fn test_cat_without_flags_is_rewritten() {
+        assert_eq!(
+            rewrite_command("cat file.txt", &[]),
+            Some("rtk read file.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn test_cat_with_n_flag_not_rewritten() {
+        assert_eq!(rewrite_command("cat -n file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat --number file.txt", &[]), None);
+    }
+
+    #[test]
+    fn test_cat_with_show_all_flag_not_rewritten() {
+        assert_eq!(rewrite_command("cat -A file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat --show-all file.txt", &[]), None);
+    }
+
+    #[test]
+    fn test_cat_with_b_flag_not_rewritten() {
+        assert_eq!(rewrite_command("cat -b file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat --number-nonblank file.txt", &[]), None);
+    }
+
+    #[test]
+    fn test_cat_with_other_incompatible_flags_not_rewritten() {
+        assert_eq!(rewrite_command("cat -e file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat -E file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat --show-ends file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat -s file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat --squeeze-blank file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat -T file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat --show-tabs file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat -t file.txt", &[]), None);
+        assert_eq!(rewrite_command("cat -v file.txt", &[]), None);
+        assert_eq!(
+            rewrite_command("cat --show-nonprinting file.txt", &[]),
+            None
+        );
     }
 
     #[test]
