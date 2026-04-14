@@ -135,6 +135,14 @@ fn human_size(bytes: u64) -> String {
 ///   name/  (dirs)
 ///   name  size  (files)
 fn compact_ls(raw: &str, show_all: bool) -> String {
+    // Auto-detect if stdout is a terminal
+    use std::io::IsTerminal;
+    let is_tty = std::io::stdout().is_terminal();
+    compact_ls_with_tty(raw, show_all, is_tty)
+}
+
+/// Compact ls with explicit TTY control (for testing)
+fn compact_ls_with_tty(raw: &str, show_all: bool, include_summary: bool) -> String {
     use std::collections::HashMap;
 
     let mut dirs: Vec<String> = Vec::new();
@@ -201,26 +209,28 @@ fn compact_ls(raw: &str, show_all: bool) -> String {
         out.push('\n');
     }
 
-    // Summary line
-    out.push('\n');
-    let mut summary = format!("📊 {} files, {} dirs", files.len(), dirs.len());
-    if !by_ext.is_empty() {
-        let mut ext_counts: Vec<_> = by_ext.iter().collect();
-        ext_counts.sort_by(|a, b| b.1.cmp(a.1));
-        let ext_parts: Vec<String> = ext_counts
-            .iter()
-            .take(5)
-            .map(|(ext, count)| format!("{} {}", count, ext))
-            .collect();
-        summary.push_str(" (");
-        summary.push_str(&ext_parts.join(", "));
-        if ext_counts.len() > 5 {
-            summary.push_str(&format!(", +{} more", ext_counts.len() - 5));
+    // Summary line (only for terminal output, not piped)
+    if include_summary {
+        out.push('\n');
+        let mut summary = format!("📊 {} files, {} dirs", files.len(), dirs.len());
+        if !by_ext.is_empty() {
+            let mut ext_counts: Vec<_> = by_ext.iter().collect();
+            ext_counts.sort_by(|a, b| b.1.cmp(a.1));
+            let ext_parts: Vec<String> = ext_counts
+                .iter()
+                .take(5)
+                .map(|(ext, count)| format!("{} {}", count, ext))
+                .collect();
+            summary.push_str(" (");
+            summary.push_str(&ext_parts.join(", "));
+            if ext_counts.len() > 5 {
+                summary.push_str(&format!(", +{} more", ext_counts.len() - 5));
+            }
+            summary.push(')');
         }
-        summary.push(')');
+        out.push_str(&summary);
+        out.push('\n');
     }
-    out.push_str(&summary);
-    out.push('\n');
 
     out
 }
@@ -237,7 +247,7 @@ mod tests {
                      drwxr-xr-x  2 user  staff    64 Jan  1 12:00 src\n\
                      -rw-r--r--  1 user  staff  1234 Jan  1 12:00 Cargo.toml\n\
                      -rw-r--r--  1 user  staff  5678 Jan  1 12:00 README.md\n";
-        let output = compact_ls(input, false);
+        let output = compact_ls_with_tty(input, false, true);
         assert!(output.contains("src/"));
         assert!(output.contains("Cargo.toml"));
         assert!(output.contains("README.md"));
@@ -258,7 +268,7 @@ mod tests {
                      drwxr-xr-x  2 user  staff  64 Jan  1 12:00 target\n\
                      drwxr-xr-x  2 user  staff  64 Jan  1 12:00 src\n\
                      -rw-r--r--  1 user  staff  100 Jan  1 12:00 main.rs\n";
-        let output = compact_ls(input, false);
+        let output = compact_ls_with_tty(input, false, true);
         assert!(!output.contains("node_modules"));
         assert!(!output.contains(".git"));
         assert!(!output.contains("target"));
@@ -271,7 +281,7 @@ mod tests {
         let input = "total 8\n\
                      drwxr-xr-x  2 user  staff  64 Jan  1 12:00 .git\n\
                      drwxr-xr-x  2 user  staff  64 Jan  1 12:00 src\n";
-        let output = compact_ls(input, true);
+        let output = compact_ls_with_tty(input, true, true);
         assert!(output.contains(".git/"));
         assert!(output.contains("src/"));
     }
@@ -279,7 +289,7 @@ mod tests {
     #[test]
     fn test_compact_empty() {
         let input = "total 0\n";
-        let output = compact_ls(input, false);
+        let output = compact_ls_with_tty(input, false, true);
         assert_eq!(output, "(empty)\n");
     }
 
@@ -290,7 +300,7 @@ mod tests {
                      -rw-r--r--  1 user  staff  1234 Jan  1 12:00 main.rs\n\
                      -rw-r--r--  1 user  staff  5678 Jan  1 12:00 lib.rs\n\
                      -rw-r--r--  1 user  staff   100 Jan  1 12:00 Cargo.toml\n";
-        let output = compact_ls(input, false);
+        let output = compact_ls_with_tty(input, false, true);
         assert!(output.contains("📊 3 files, 1 dirs"));
         assert!(output.contains(".rs"));
         assert!(output.contains(".toml"));
@@ -310,7 +320,7 @@ mod tests {
     fn test_compact_handles_filenames_with_spaces() {
         let input = "total 8\n\
                      -rw-r--r--  1 user  staff  1234 Jan  1 12:00 my file.txt\n";
-        let output = compact_ls(input, false);
+        let output = compact_ls_with_tty(input, false, true);
         assert!(output.contains("my file.txt"));
     }
 
@@ -318,7 +328,29 @@ mod tests {
     fn test_compact_symlinks() {
         let input = "total 8\n\
                      lrwxr-xr-x  1 user  staff  10 Jan  1 12:00 link -> target\n";
-        let output = compact_ls(input, false);
+        let output = compact_ls_with_tty(input, false, true);
         assert!(output.contains("link -> target"));
+    }
+
+    #[test]
+    fn test_compact_includes_summary_for_terminal() {
+        let input = "total 8\n\
+                     drwxr-xr-x  2 user  staff  64 Jan  1 12:00 src\n\
+                     -rw-r--r--  1 user  staff  100 Jan  1 12:00 main.rs\n";
+        let output = compact_ls_with_tty(input, false, true);
+        assert!(output.contains("📊"));
+        assert!(output.contains("1 files, 1 dirs"));
+    }
+
+    #[test]
+    fn test_compact_omits_summary_for_pipe() {
+        let input = "total 8\n\
+                     drwxr-xr-x  2 user  staff  64 Jan  1 12:00 src\n\
+                     -rw-r--r--  1 user  staff  100 Jan  1 12:00 main.rs\n";
+        let output = compact_ls_with_tty(input, false, false);
+        assert!(!output.contains("📊"));
+        assert!(!output.contains("files, "));
+        assert!(output.contains("src/"));
+        assert!(output.contains("main.rs"));
     }
 }

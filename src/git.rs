@@ -1,7 +1,7 @@
 use crate::tracking;
 use anyhow::{Context, Result};
 use std::ffi::OsString;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[derive(Debug, Clone, Default)]
 pub struct GitGlobalOpts {
@@ -83,12 +83,40 @@ pub fn run(
     }
 }
 
+/// Re-insert `--` path separator when clap's trailing_var_arg has consumed it.
+///
+/// clap with trailing_var_arg=true silently drops `--` when it is the first
+/// positional argument. This causes `rtk git diff -- file` to arrive as
+/// `["file"]`, making git treat the path as a revision and emit
+/// "fatal: ambiguous argument". We re-insert `--` before the first
+/// path-like argument (contains `/` or `\`, or starts with `.` or `~`)
+/// when `--` is absent from the args vec.
+fn normalize_diff_args(args: &[String]) -> Vec<String> {
+    if args.iter().any(|a| a == "--") {
+        return args.to_vec();
+    }
+    let path_idx = args.iter().position(|a| {
+        a.contains('/') || a.contains('\\') || a.starts_with('.') || a.starts_with('~')
+    });
+    match path_idx {
+        Some(idx) => {
+            let mut result = args[..idx].to_vec();
+            result.push("--".to_string());
+            result.extend_from_slice(&args[idx..]);
+            result
+        }
+        None => args.to_vec(),
+    }
+}
+
 fn run_diff(
     args: &[String],
     max_lines: Option<usize>,
     verbose: u8,
     opts: &GitGlobalOpts,
 ) -> Result<()> {
+    let normalized = normalize_diff_args(args);
+    let args = normalized.as_slice();
     let timer = tracking::TimedExecution::start();
 
     // Check if user wants stat output
@@ -306,11 +334,17 @@ pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
     let mut added = 0;
     let mut removed = 0;
     let mut in_hunk = false;
-    let mut hunk_lines = 0;
+    let mut hunk_shown = 0;
+    let mut hunk_skipped: usize = 0;
     let max_hunk_lines = 10;
 
     for line in diff.lines() {
         if line.starts_with("diff --git") {
+            // Flush previous hunk's skipped count
+            if hunk_skipped > 0 {
+                result.push(format!("  ... ({} lines truncated)", hunk_skipped));
+                hunk_skipped = 0;
+            }
             // New file
             if !current_file.is_empty() && (added > 0 || removed > 0) {
                 result.push(format!("  +{} -{}", added, removed));
@@ -321,42 +355,56 @@ pub(crate) fn compact_diff(diff: &str, max_lines: usize) -> String {
             removed = 0;
             in_hunk = false;
         } else if line.starts_with("@@") {
+            // Flush previous hunk's skipped count
+            if hunk_skipped > 0 {
+                result.push(format!("  ... ({} lines truncated)", hunk_skipped));
+                hunk_skipped = 0;
+            }
             // New hunk
             in_hunk = true;
-            hunk_lines = 0;
+            hunk_shown = 0;
             let hunk_info = line.split("@@").nth(1).unwrap_or("").trim();
             result.push(format!("  @@ {} @@", hunk_info));
         } else if in_hunk {
             if line.starts_with('+') && !line.starts_with("+++") {
                 added += 1;
-                if hunk_lines < max_hunk_lines {
+                if hunk_shown < max_hunk_lines {
                     result.push(format!("  {}", line));
-                    hunk_lines += 1;
+                    hunk_shown += 1;
+                } else {
+                    hunk_skipped += 1;
                 }
             } else if line.starts_with('-') && !line.starts_with("---") {
                 removed += 1;
-                if hunk_lines < max_hunk_lines {
+                if hunk_shown < max_hunk_lines {
                     result.push(format!("  {}", line));
-                    hunk_lines += 1;
+                    hunk_shown += 1;
+                } else {
+                    hunk_skipped += 1;
                 }
-            } else if hunk_lines < max_hunk_lines && !line.starts_with("\\") {
+            } else if !line.starts_with("\\") {
                 // Context line
-                if hunk_lines > 0 {
+                if hunk_shown < max_hunk_lines && hunk_shown > 0 {
                     result.push(format!("  {}", line));
-                    hunk_lines += 1;
+                    hunk_shown += 1;
+                } else if hunk_shown >= max_hunk_lines {
+                    hunk_skipped += 1;
                 }
-            }
-
-            if hunk_lines == max_hunk_lines {
-                result.push("  ... (truncated)".to_string());
-                hunk_lines += 1;
             }
         }
 
         if result.len() >= max_lines {
-            result.push("\n... (more changes truncated)".to_string());
+            if hunk_skipped > 0 {
+                result.push(format!("  ... ({} lines truncated)", hunk_skipped));
+            }
+            result.push("\n[full diff: rtk git diff --no-compact]".to_string());
             break;
         }
+    }
+
+    // Flush final hunk's skipped count
+    if hunk_skipped > 0 {
+        result.push(format!("  ... ({} lines truncated)", hunk_skipped));
     }
 
     if !current_file.is_empty() && (added > 0 || removed > 0) {
@@ -415,7 +463,7 @@ fn run_log(
 
     // Apply RTK defaults only if user didn't specify them
     if !has_format_flag {
-        cmd.args(["--pretty=format:%h %s (%ar) <%an>"]);
+        cmd.args(["--pretty=format:%h %s (%ar) <%an>%n%b%n---END---"]);
     }
 
     // Determine limit: respect user's explicit -N flag, use sensible defaults otherwise
@@ -461,7 +509,7 @@ fn run_log(
     }
 
     // Post-process: truncate long messages, cap lines
-    let filtered = filter_log_output(&stdout, limit);
+    let filtered = filter_log_output(&stdout, limit, has_limit_flag, has_format_flag);
     println!("{}", filtered);
 
     timer.track(
@@ -474,23 +522,98 @@ fn run_log(
     Ok(())
 }
 
-/// Filter git log output: truncate long messages, cap lines
-fn filter_log_output(output: &str, limit: usize) -> String {
-    let lines: Vec<&str> = output.lines().collect();
-    let capped: Vec<String> = lines
-        .iter()
-        .take(limit)
-        .map(|line| {
-            if line.len() > 80 {
-                let truncated: String = line.chars().take(77).collect();
+/// Filter git log output: parse blocks separated by ---END---, extract body
+fn filter_log_output(
+    output: &str,
+    limit: usize,
+    user_set_limit: bool,
+    user_format: bool,
+) -> String {
+    let truncate_width = 120;
+
+    // When user specified their own format, don't parse ---END--- blocks
+    if user_format {
+        let lines: Vec<&str> = output.lines().collect();
+        let max_lines = if user_set_limit { lines.len() } else { limit };
+        return lines
+            .iter()
+            .take(max_lines)
+            .map(|l| {
+                if l.len() > truncate_width {
+                    let truncated: String = l.chars().take(truncate_width - 3).collect();
+                    format!("{}...", truncated)
+                } else {
+                    l.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+    }
+
+    // Parse ---END--- delimited blocks from RTK's custom format
+    let blocks: Vec<&str> = output.split("---END---").collect();
+    let mut entries = Vec::new();
+
+    for block in blocks.iter().take(limit) {
+        let block = block.trim();
+        if block.is_empty() {
+            continue;
+        }
+
+        let mut lines = block.lines();
+        let header = match lines.next() {
+            Some(h) => h.trim(),
+            None => continue,
+        };
+
+        if header.is_empty() {
+            continue;
+        }
+
+        // Truncate header if too long
+        let header = if header.len() > truncate_width {
+            let truncated: String = header.chars().take(truncate_width - 3).collect();
+            format!("{}...", truncated)
+        } else {
+            header.to_string()
+        };
+
+        let mut entry = header;
+
+        // Extract first meaningful body line (skip trailers)
+        let all_body_lines: Vec<&str> = lines
+            .map(|l| l.trim())
+            .filter(|l| {
+                !l.is_empty()
+                    && !l.starts_with("Signed-off-by:")
+                    && !l.starts_with("Co-authored-by:")
+                    && !l.starts_with("Co-Authored-By:")
+            })
+            .collect();
+
+        // Show up to 3 body lines
+        let body_limit = 3;
+        let body_omitted = all_body_lines.len().saturating_sub(body_limit);
+        let body_lines = &all_body_lines[..all_body_lines.len().min(body_limit)];
+
+        for body_line in body_lines {
+            let body_line = if body_line.len() > truncate_width - 2 {
+                let truncated: String = body_line.chars().take(truncate_width - 5).collect();
                 format!("{}...", truncated)
             } else {
-                line.to_string()
-            }
-        })
-        .collect();
+                body_line.to_string()
+            };
+            entry.push_str(&format!("\n  {}", body_line));
+        }
 
-    capped.join("\n").trim().to_string()
+        if body_omitted > 0 {
+            entry.push_str(&format!("\n  [+{} lines omitted]", body_omitted));
+        }
+
+        entries.push(entry);
+    }
+
+    entries.join("\n")
 }
 
 /// Format porcelain output into compact RTK status display
@@ -779,6 +902,7 @@ fn run_commit(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> 
     }
 
     let output = build_commit_command(args, opts)
+        .stdin(Stdio::inherit())
         .output()
         .context("Failed to run git commit")?;
 
@@ -842,7 +966,10 @@ fn run_push(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()> {
         cmd.arg(arg);
     }
 
-    let output = cmd.output().context("Failed to run git push")?;
+    let output = cmd
+        .stdin(Stdio::inherit())
+        .output()
+        .context("Failed to run git push")?;
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -1463,6 +1590,43 @@ mod tests {
     }
 
     #[test]
+    fn test_compact_diff_hunk_truncation_count_accurate() {
+        // Build a diff with 60 added lines in one hunk
+        let mut diff = String::from("diff --git a/big.rs b/big.rs\n");
+        diff.push_str("--- a/big.rs\n+++ b/big.rs\n");
+        diff.push_str("@@ -1,0 +1,60 @@\n");
+        for i in 0..60 {
+            diff.push_str(&format!("+line {}\n", i));
+        }
+
+        let result = compact_diff(&diff, 500);
+        // Should show first 10 lines, then exact count of remaining
+        assert!(
+            result.contains("50 lines truncated"),
+            "Should show exact count of truncated lines, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_compact_diff_no_false_truncation() {
+        // Diff with exactly 8 added lines - no truncation needed
+        let mut diff = String::from("diff --git a/small.rs b/small.rs\n");
+        diff.push_str("--- a/small.rs\n+++ b/small.rs\n");
+        diff.push_str("@@ -1,0 +1,8 @@\n");
+        for i in 0..8 {
+            diff.push_str(&format!("+line {}\n", i));
+        }
+
+        let result = compact_diff(&diff, 500);
+        assert!(
+            !result.contains("truncated"),
+            "8 lines should not trigger truncation, got: {}",
+            result
+        );
+    }
+
+    #[test]
     fn test_filter_branch_output() {
         let output = "* main\n  feature/auth\n  fix/bug-123\n  remotes/origin/HEAD -> origin/main\n  remotes/origin/main\n  remotes/origin/feature/auth\n  remotes/origin/release/v2\n";
         let result = filter_branch_output(output);
@@ -1581,9 +1745,52 @@ M  file7.rs
     }
 
     #[test]
+    fn test_filter_log_output_preserves_body() {
+        let input = "abc1234 feat: add feature (2 days ago) <dev>\n\
+                     This commit adds a new feature for users.\n\
+                     \n\
+                     Signed-off-by: Dev <dev@example.com>\n\
+                     ---END---\n\
+                     def5678 fix: bug fix (3 days ago) <dev>\n\
+                     \n\
+                     ---END---";
+        let result = filter_log_output(input, 10, false, false);
+        assert!(result.contains("abc1234 feat: add feature"));
+        assert!(result.contains("  This commit adds a new feature"));
+        assert!(!result.contains("Signed-off-by"));
+        assert!(result.contains("def5678 fix: bug fix"));
+    }
+
+    #[test]
+    fn test_filter_log_output_body_omission_indicator() {
+        let body_lines = (0..6)
+            .map(|i| format!("Body line {}", i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let input = format!(
+            "abc1234 feat: big change (1 day ago) <dev>\n{}\n---END---",
+            body_lines
+        );
+        let result = filter_log_output(&input, 10, false, false);
+        assert!(
+            result.contains("Body line 0"),
+            "First body line should show"
+        );
+        assert!(
+            result.contains("Body line 2"),
+            "Third body line should show"
+        );
+        assert!(
+            result.contains("[+3 lines omitted]"),
+            "Should indicate 3 omitted lines, got: {}",
+            result
+        );
+    }
+
+    #[test]
     fn test_filter_log_output() {
-        let output = "abc1234 This is a commit message (2 days ago) <author>\ndef5678 Another commit (1 week ago) <other>\n";
-        let result = filter_log_output(output, 10);
+        let output = "abc1234 This is a commit message (2 days ago) <author>\n\n---END---\ndef5678 Another commit (1 week ago) <other>\n\n---END---\n";
+        let result = filter_log_output(output, 10, false, false);
         assert!(result.contains("abc1234"));
         assert!(result.contains("def5678"));
         assert_eq!(result.lines().count(), 2);
@@ -1591,20 +1798,23 @@ M  file7.rs
 
     #[test]
     fn test_filter_log_output_truncate_long() {
-        let long_line = "abc1234 ".to_string() + &"x".repeat(100) + " (2 days ago) <author>";
-        let result = filter_log_output(&long_line, 10);
+        // Create a line longer than 120 chars to test truncation
+        let long_line =
+            "abc1234 ".to_string() + &"x".repeat(120) + " (2 days ago) <author>\n\n---END---\n";
+        let result = filter_log_output(&long_line, 10, false, false);
         assert!(result.len() < long_line.len());
         assert!(result.contains("..."));
-        assert!(result.len() <= 80);
+        // With truncate_width=120, header should be ~123 chars (120 + "...")
+        assert!(result.len() <= 125);
     }
 
     #[test]
     fn test_filter_log_output_cap_lines() {
         let output = (0..20)
-            .map(|i| format!("hash{} message {} (1 day ago) <author>", i, i))
+            .map(|i| format!("hash{} message {} (1 day ago) <author>\n\n---END---", i, i))
             .collect::<Vec<_>>()
             .join("\n");
-        let result = filter_log_output(&output, 5);
+        let result = filter_log_output(&output, 5, false, false);
         assert_eq!(result.lines().count(), 5);
     }
 
@@ -1639,22 +1849,69 @@ no changes added to commit (use "git add" and/or "git commit -a")
 
     #[test]
     fn test_filter_log_output_multibyte() {
-        // Thai characters: each is 3 bytes. A line with >80 bytes but few chars
-        let thai_msg = format!("abc1234 {} (2 days ago) <author>", "ก".repeat(30));
-        let result = filter_log_output(&thai_msg, 10);
+        // Thai characters: each is 3 bytes. Create a line >120 chars to test truncation
+        let thai_msg = format!("abc1234 {} (2 days ago) <author>", "ก".repeat(125));
+        let result = filter_log_output(&thai_msg, 10, false, true);
         // Should not panic
         assert!(result.contains("abc1234"));
-        // The line has 30 Thai chars (90 bytes) + other text, so > 80 bytes
+        // The line has 125 Thai chars + other text, so > 120 chars
         // It should be truncated with "..."
         assert!(result.contains("..."));
     }
 
     #[test]
     fn test_filter_log_output_emoji() {
-        let emoji_msg = "abc1234 🎉🎊🎈🎁🎂🎄🎃🎆🎇✨🎉🎊🎈🎁🎂🎄🎃🎆🎇✨ (1 day ago) <user>";
-        let result = filter_log_output(emoji_msg, 10);
+        // Create a line >120 chars with many emojis
+        let emoji_msg = format!("abc1234 {} (1 day ago) <user>", "🎉".repeat(125));
+        let result = filter_log_output(&emoji_msg, 10, false, true);
         // Should not panic, should have "..."
         assert!(result.contains("..."));
+    }
+
+    #[test]
+    fn test_filter_log_output_user_format_oneline() {
+        // Simulates --oneline output (no ---END--- markers)
+        let input = "abc1234 first commit\n\
+                     def5678 second commit\n\
+                     ghi9012 third commit\n\
+                     jkl3456 fourth commit\n\
+                     mno7890 fifth commit";
+        // user_format=true, user_set_limit=false, limit=3 (RTK default)
+        let result = filter_log_output(input, 3, false, true);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 3, "Should show 3 lines (RTK default limit)");
+        assert!(result.contains("abc1234 first commit"));
+        assert!(result.contains("ghi9012 third commit"));
+        assert!(
+            !result.contains("jkl3456"),
+            "4th commit should be truncated"
+        );
+    }
+
+    #[test]
+    fn test_filter_log_output_user_format_respects_user_limit() {
+        let input = "abc1234 first commit\ndef5678 second commit\nghi9012 third commit\njkl3456 fourth commit\nmno7890 fifth commit";
+        // user_format=true, user_set_limit=true, limit=3 -> show ALL lines (user chose -5)
+        let result = filter_log_output(input, 3, true, true);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(
+            lines.len(),
+            5,
+            "Should show all 5 lines when user set limit (bypasses RTK cap)"
+        );
+        assert!(result.contains("mno7890"), "5th commit must be present");
+    }
+
+    #[test]
+    fn test_filter_log_output_user_format_no_drops() {
+        // Regression test: --oneline must NOT drop commits
+        let input = (0..20)
+            .map(|i| format!("{:07x} commit {}", i, i))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result = filter_log_output(&input, 50, false, true);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 20, "All 20 commits must be present");
     }
 
     #[test]
@@ -1950,5 +2207,44 @@ no changes added to commit (use "git add" and/or "git commit -a")
             ]),
             Some(20)
         );
+    }
+
+    #[test]
+    fn test_normalize_diff_args_reinserts_separator() {
+        let args = vec!["src/foo.rs".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["--", "src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_preserves_existing_separator() {
+        let args = vec![
+            "HEAD".to_string(),
+            "--".to_string(),
+            "src/foo.rs".to_string(),
+        ];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["HEAD", "--", "src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_leaves_revisions_alone() {
+        let args = vec!["HEAD~1".to_string(), "HEAD".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["HEAD~1", "HEAD"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_detects_relative_path() {
+        let args = vec!["./src/foo.rs".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["--", "./src/foo.rs"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_revision_then_path() {
+        let args = vec!["HEAD".to_string(), "src/foo.rs".to_string()];
+        let normalized = normalize_diff_args(&args);
+        assert_eq!(normalized, vec!["HEAD", "--", "src/foo.rs"]);
     }
 }

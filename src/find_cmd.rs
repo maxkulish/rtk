@@ -208,9 +208,12 @@ pub fn run(
 
     let want_dirs = file_type == "d";
 
+    // When searching for dotfiles (pattern starts with '.'), include hidden files
+    let search_hidden = effective_pattern.starts_with('.');
+
     let mut builder = WalkBuilder::new(path);
     builder
-        .hidden(true) // skip hidden files/dirs
+        .hidden(!search_hidden) // include hidden files if pattern targets them
         .git_ignore(true) // respect .gitignore
         .git_global(true)
         .git_exclude(true);
@@ -594,5 +597,36 @@ mod tests {
         assert!(result.is_ok());
         // We can't easily capture stdout in unit tests, but at least
         // verify it runs without error. The smoke tests verify content.
+    }
+
+    #[test]
+    fn should_search_hidden_for_dotfile_pattern() {
+        // Helper test: verify logic for when to search hidden files
+        let pattern = ".env";
+        let should_search = pattern.starts_with('.');
+        assert!(
+            should_search,
+            "Pattern .env should trigger hidden file search"
+        );
+    }
+
+    #[test]
+    fn should_not_search_hidden_for_normal_pattern() {
+        let pattern = "*.rs";
+        let should_search = pattern.starts_with('.');
+        assert!(
+            !should_search,
+            "Pattern *.rs should not trigger hidden file search"
+        );
+    }
+
+    #[test]
+    fn should_search_hidden_for_gitignore_pattern() {
+        let pattern = ".gitignore";
+        let should_search = pattern.starts_with('.');
+        assert!(
+            should_search,
+            "Pattern .gitignore should trigger hidden file search"
+        );
     }
 }

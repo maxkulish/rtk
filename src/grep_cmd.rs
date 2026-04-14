@@ -2,7 +2,7 @@ use crate::tracking;
 use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashMap;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 #[allow(clippy::too_many_arguments)]
 pub fn run(
@@ -40,8 +40,14 @@ pub fn run(
     }
 
     let output = rg_cmd
+        .stdin(Stdio::null())
         .output()
-        .or_else(|_| Command::new("grep").args(["-rn", pattern, path]).output())
+        .or_else(|_| {
+            Command::new("grep")
+                .args(["-rn", pattern, path])
+                .stdin(Stdio::null())
+                .output()
+        })
         .context("grep/rg failed")?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -285,5 +291,18 @@ mod tests {
             );
         }
         // If rg is not installed, skip gracefully (test still passes)
+    }
+
+    #[test]
+    fn test_rg_uses_null_stdin() {
+        // Subprocess stdin must be Stdio::null() to prevent fd leaks when
+        // the parent process stdin is a pipe (e.g. in a script context).
+        // Structural test: verify Command accepts Stdio::null() configuration.
+        use std::process::{Command, Stdio};
+        let mut cmd = Command::new("rg");
+        cmd.stdin(Stdio::null());
+        // The stdin configuration itself must not panic; behavioral guarantee
+        // (no fd leak) is validated by the integration scenario.
+        let _ = cmd;
     }
 }

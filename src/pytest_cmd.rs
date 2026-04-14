@@ -122,9 +122,8 @@ fn filter_pytest_output(output: &str) -> String {
                 current_failure.clear();
             }
             continue;
-        } else if trimmed.starts_with("===")
-            && (trimmed.contains("passed") || trimmed.contains("failed"))
-        {
+        } else if is_pytest_summary_line(trimmed) {
+            // Summary line (with or without === borders)
             summary_line = trimmed.to_string();
             continue;
         }
@@ -255,12 +254,49 @@ fn build_pytest_summary(summary: &str, _test_files: &[String], failures: &[Strin
     result.trim().to_string()
 }
 
+/// Check if a line looks like a pytest summary line (with or without === borders).
+/// Examples:
+/// - "=== 5 passed in 1.34s ===" (normal mode)
+/// - "1 failed, 3 passed in 0.12s" (quiet mode)
+fn is_pytest_summary_line(line: &str) -> bool {
+    let trimmed = line.trim();
+
+    // Normal mode with === borders
+    if trimmed.starts_with("===") && (trimmed.contains("passed") || trimmed.contains("failed")) {
+        return true;
+    }
+
+    // Quiet mode format: "\d+ \w+(, \d+ \w+)* in \d+\.?\d*s"
+    // Examples: "5 passed in 1.34s", "1 failed, 3 passed in 0.12s"
+    if !trimmed.contains(" in ") || !trimmed.ends_with('s') {
+        return false;
+    }
+
+    // Must contain at least one of: "passed", "failed", "skipped"
+    if !trimmed.contains("passed") && !trimmed.contains("failed") && !trimmed.contains("skipped") {
+        return false;
+    }
+
+    // Check format: must have number before status word
+    let words: Vec<&str> = trimmed.split_whitespace().collect();
+    for (i, word) in words.iter().enumerate() {
+        if (*word == "passed" || *word == "failed" || *word == "skipped") && i > 0 {
+            // Previous word should be a number
+            if words[i - 1].trim_end_matches(',').parse::<usize>().is_ok() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn parse_summary_line(summary: &str) -> (usize, usize, usize) {
     let mut passed = 0;
     let mut failed = 0;
     let mut skipped = 0;
 
-    // Parse lines like "=== 4 passed, 1 failed in 0.50s ==="
+    // Parse lines like "=== 4 passed, 1 failed in 0.50s ===" or "1 failed, 3 passed in 0.12s"
     let parts: Vec<&str> = summary.split(',').collect();
 
     for part in parts {
@@ -381,5 +417,62 @@ collected 0 items
             parse_summary_line("=== 3 passed, 1 failed, 2 skipped in 1.0s ==="),
             (3, 1, 2)
         );
+    }
+
+    #[test]
+    fn test_is_pytest_summary_line_normal_mode() {
+        assert!(is_pytest_summary_line("=== 5 passed in 0.50s ==="));
+        assert!(is_pytest_summary_line(
+            "=== 4 passed, 1 failed in 0.50s ==="
+        ));
+        assert!(!is_pytest_summary_line("=== test session starts ==="));
+        assert!(!is_pytest_summary_line("=== FAILURES ==="));
+    }
+
+    #[test]
+    fn test_is_pytest_summary_line_quiet_mode() {
+        assert!(is_pytest_summary_line("5 passed in 1.34s"));
+        assert!(is_pytest_summary_line("1 failed, 3 passed in 0.12s"));
+        assert!(is_pytest_summary_line("2 failed in 0.45s"));
+        assert!(is_pytest_summary_line(
+            "1 failed, 2 passed, 1 skipped in 0.89s"
+        ));
+        assert!(!is_pytest_summary_line("collected 5 items"));
+        assert!(!is_pytest_summary_line("test_foo.py ....."));
+    }
+
+    #[test]
+    fn test_parse_summary_line_quiet_mode() {
+        // Quiet mode format (no === borders)
+        assert_eq!(parse_summary_line("5 passed in 1.34s"), (5, 0, 0));
+        assert_eq!(parse_summary_line("1 failed, 3 passed in 0.12s"), (3, 1, 0));
+        assert_eq!(parse_summary_line("2 failed in 0.45s"), (0, 2, 0));
+        assert_eq!(
+            parse_summary_line("1 failed, 2 passed, 1 skipped in 0.89s"),
+            (2, 1, 1)
+        );
+    }
+
+    #[test]
+    fn test_filter_pytest_quiet_mode_with_failure() {
+        let output = r#"test_foo.py F                                                  [100%]
+
+=== FAILURES ===
+___ test_something ___
+
+    def test_something():
+>       assert False
+E       assert False
+
+tests/test_foo.py:10: AssertionError
+
+=== short test summary info ===
+FAILED tests/test_foo.py::test_something - assert False
+1 failed, 3 passed in 0.12s"#;
+
+        let result = filter_pytest_output(output);
+        assert!(result.contains("3 passed, 1 failed"));
+        assert!(result.contains("test_something"));
+        assert!(!result.contains("No tests collected"));
     }
 }

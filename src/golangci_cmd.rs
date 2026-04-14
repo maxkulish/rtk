@@ -38,19 +38,27 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
 
     let mut cmd = Command::new("golangci-lint");
 
-    // Force JSON output
+    // Check if run subcommand already provided
+    let has_run = args.iter().any(|a| a == "run");
+
+    // Check if custom format specified
     let has_format = args
         .iter()
         .any(|a| a == "--out-format" || a.starts_with("--out-format="));
 
-    if !has_format {
-        cmd.arg("run").arg("--out-format=json");
-    } else {
+    // Add run if not present, preserving all args
+    if !has_run {
         cmd.arg("run");
     }
 
+    // Add all user args (including run if present)
     for arg in args {
         cmd.arg(arg);
+    }
+
+    // Add JSON format if not specified
+    if !has_format {
+        cmd.arg("--out-format=json");
     }
 
     if verbose > 0 {

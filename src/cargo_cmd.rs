@@ -1,7 +1,6 @@
 use crate::tracking;
 use crate::utils::truncate;
 use anyhow::{Context, Result};
-use std::collections::HashMap;
 use std::ffi::OsString;
 use std::process::Command;
 use std::sync::OnceLock;
@@ -528,6 +527,7 @@ fn filter_cargo_build(output: &str) -> String {
     let mut compiled = 0;
     let mut in_error = false;
     let mut current_error = Vec::new();
+    let mut finished_line: Option<String> = None;
 
     for line in output.lines() {
         if line.trim_start().starts_with("Compiling") || line.trim_start().starts_with("Checking") {
@@ -540,6 +540,7 @@ fn filter_cargo_build(output: &str) -> String {
             continue;
         }
         if line.trim_start().starts_with("Finished") {
+            finished_line = Some(line.trim_start().to_string());
             continue;
         }
 
@@ -586,6 +587,9 @@ fn filter_cargo_build(output: &str) -> String {
     }
 
     if error_count == 0 && warnings == 0 {
+        if let Some(finished) = finished_line {
+            return format!("✓ cargo build ({} crates compiled)\n{}", compiled, finished);
+        }
         return format!("✓ cargo build ({} crates compiled)", compiled);
     }
 
@@ -761,6 +765,24 @@ fn filter_cargo_test(output: &str) -> String {
         failures.push(current_failure.join("\n"));
     }
 
+    // If no test results found, check for compile errors
+    if failures.is_empty() && summary_lines.is_empty() {
+        let has_compile_errors = output.lines().any(|line| {
+            let trimmed = line.trim_start();
+            trimmed.starts_with("error[") || trimmed.starts_with("error:")
+        });
+        if has_compile_errors {
+            let build_filtered = filter_cargo_build(output);
+            if build_filtered.starts_with("cargo build:") {
+                return build_filtered.replacen("cargo build:", "cargo test:", 1);
+            }
+            // If filter_cargo_build didn't produce structured output, return it as-is
+            if !build_filtered.is_empty() {
+                return build_filtered;
+            }
+        }
+    }
+
     let mut result = String::new();
 
     if failures.is_empty() && !summary_lines.is_empty() {
@@ -827,15 +849,13 @@ fn filter_cargo_test(output: &str) -> String {
     result.trim().to_string()
 }
 
-/// Filter cargo clippy output - group warnings by lint rule
+/// Filter cargo clippy output - preserve full error blocks with context
 fn filter_cargo_clippy(output: &str) -> String {
-    let mut by_rule: HashMap<String, Vec<String>> = HashMap::new();
+    let mut errors: Vec<String> = Vec::new();
     let mut error_count = 0;
     let mut warning_count = 0;
-
-    // Parse clippy output lines
-    // Format: "warning: description\n  --> file:line:col\n  |\n  | code\n"
-    let mut current_rule = String::new();
+    let mut in_error = false;
+    let mut current_error = Vec::new();
 
     for line in output.lines() {
         // Skip compilation lines
@@ -861,6 +881,12 @@ fn filter_cargo_clippy(output: &str) -> String {
                 continue;
             }
 
+            // Save previous error block if exists
+            if in_error && !current_error.is_empty() {
+                errors.push(current_error.join("\n"));
+                current_error.clear();
+            }
+
             let is_error = line.starts_with("error");
             if is_error {
                 error_count += 1;
@@ -868,27 +894,24 @@ fn filter_cargo_clippy(output: &str) -> String {
                 warning_count += 1;
             }
 
-            // Extract rule name from brackets
-            current_rule = if let Some(bracket_start) = line.rfind('[') {
-                if let Some(bracket_end) = line.rfind(']') {
-                    line[bracket_start + 1..bracket_end].to_string()
-                } else {
-                    line.to_string()
-                }
+            in_error = true;
+            current_error.push(line.to_string());
+        } else if in_error {
+            // Collect all lines that are part of the error block
+            // Empty lines after sufficient context mark end of block
+            if line.trim().is_empty() && current_error.len() > 3 {
+                errors.push(current_error.join("\n"));
+                current_error.clear();
+                in_error = false;
             } else {
-                // No bracket: use the message itself as the rule
-                let prefix = if is_error { "error: " } else { "warning: " };
-                line.strip_prefix(prefix).unwrap_or(line).to_string()
-            };
-        } else if line.trim_start().starts_with("--> ") {
-            let location = line.trim_start().trim_start_matches("--> ").to_string();
-            if !current_rule.is_empty() {
-                by_rule
-                    .entry(current_rule.clone())
-                    .or_default()
-                    .push(location);
+                current_error.push(line.to_string());
             }
         }
+    }
+
+    // Don't forget the last error block
+    if !current_error.is_empty() {
+        errors.push(current_error.join("\n"));
     }
 
     if error_count == 0 && warning_count == 0 {
@@ -902,22 +925,16 @@ fn filter_cargo_clippy(output: &str) -> String {
     ));
     result.push_str("═══════════════════════════════════════\n");
 
-    // Sort rules by frequency
-    let mut rule_counts: Vec<_> = by_rule.iter().collect();
-    rule_counts.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
-
-    for (rule, locations) in rule_counts.iter().take(15) {
-        result.push_str(&format!("  {} ({}x)\n", rule, locations.len()));
-        for loc in locations.iter().take(3) {
-            result.push_str(&format!("    {}\n", loc));
-        }
-        if locations.len() > 3 {
-            result.push_str(&format!("    ... +{} more\n", locations.len() - 3));
+    for (i, err) in errors.iter().enumerate().take(15) {
+        result.push_str(err);
+        result.push('\n');
+        if i < errors.len() - 1 {
+            result.push('\n');
         }
     }
 
-    if by_rule.len() > 15 {
-        result.push_str(&format!("\n... +{} more rules\n", by_rule.len() - 15));
+    if errors.len() > 15 {
+        result.push_str(&format!("\n... +{} more issues\n", errors.len() - 15));
     }
 
     result.trim().to_string()
@@ -1169,6 +1186,33 @@ test result: MALFORMED LINE WITHOUT PROPER FORMAT
         assert!(
             result.contains("✓ test result: MALFORMED"),
             "Expected fallback format, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_cargo_test_compile_error_preserves_diagnostics() {
+        let input = r#"   Compiling myapp v0.1.0 (/home/user/myapp)
+error[E0308]: mismatched types
+ --> src/main.rs:10:5
+  |
+10|     let x: u32 = "hello";
+  |                  ^^^^^^^ expected `u32`, found `&str`
+
+error: aborting due to 1 previous error
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `myapp` (bin "myapp") due to 1 previous error
+"#;
+        let result = filter_cargo_test(input);
+        assert!(
+            result.contains("error[E0308]") || result.contains("mismatched types"),
+            "Compile errors should be preserved, got: {}",
+            result
+        );
+        assert!(
+            result.starts_with("cargo test:"),
+            "Should start with 'cargo test:', got: {}",
             result
         );
     }
@@ -1617,6 +1661,49 @@ error: test run failed
         assert!(
             result.contains("Summary MALFORMED"),
             "should fall back to raw summary: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_cargo_build_shows_finished_line() {
+        // Issue: cargo build success was silent - the Finished confirmation line was stripped
+        let output = r#"   Compiling serde v1.0.0
+   Compiling tokio v1.0.0
+    Finished dev [unoptimized + debuginfo] target(s) in 15.23s
+"#;
+        let result = filter_cargo_build(output);
+        assert!(
+            result.contains("Finished"),
+            "Finished line should be preserved for build confirmation, got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_filter_cargo_clippy_full_error_blocks() {
+        // Issue: cargo clippy showed only the error headline, hiding file:line and context
+        let output = r#"   Checking rtk v0.5.0
+error: this looks like you are trying to swap `a` and `b`
+  --> src/main.rs:42:5
+   |
+42 |     let temp = a;
+   |     ^^^^^^^^^^^^^
+   |
+   = note: `-D clippy::almost-swapped` implied by `-D warnings`
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#almost_swapped
+
+error: could not compile `rtk` due to 1 previous error
+"#;
+        let result = filter_cargo_clippy(output);
+        assert!(
+            result.contains("src/main.rs:42:5"),
+            "Should show file:line location, got: {}",
+            result
+        );
+        assert!(
+            result.contains("let temp = a"),
+            "Should show error context lines, got: {}",
             result
         );
     }

@@ -1,0 +1,63 @@
+[filters.liquibase]
+description = "Compact Liquibase database migration tool output"
+match_command = "^liquibase\\b"
+strip_ansi = true
+strip_lines_matching = [
+  "^\\s*$",
+  "^##",
+  "^Starting Liquibase at",
+  "^Liquibase Version:",
+  "^Get documentation at",
+]
+max_lines = 40
+
+[[tests.liquibase]]
+name = "removes ASCII art header and verbose startup"
+input = '''
+####################################################
+##   _     _             _ _                      ##
+##  | |   (_)           (_) |                     ##
+##  | |    _  __ _ _   _ _| |__   __ _ ___  ___  ##
+##  | |   | |/ _` | | | | | '_ \ / _` / __|/ _ \ ##
+##  | |___| | (_| | |_| | | |_) | (_| \__ \  __/ ##
+##  \_____/_|\__, |\__,_|_|_.__/ \__,_|___/\___| ##
+##              | |                               ##
+##              |_|                               ##
+##                                                ##
+##  Get documentation at docs.liquibase.com       ##
+####################################################
+Starting Liquibase at 10:30:00 (version 4.23.0 built at 2023-07-12 19:30+0000)
+Liquibase Version: 4.23.0
+Running Changeset: db/changelog/001-init.sql::1::author
+Running Changeset: db/changelog/002-users.sql::2::author
+Running Changeset: db/changelog/003-indexes.sql::3::author
+Liquibase command 'update' was executed successfully.
+'''
+expected = "Running Changeset: db/changelog/001-init.sql::1::author\nRunning Changeset: db/changelog/002-users.sql::2::author\nRunning Changeset: db/changelog/003-indexes.sql::3::author\nLiquibase command 'update' was executed successfully."
+
+[[tests.liquibase]]
+name = "preserves error messages"
+input = '''
+####################################################
+##   _     _             _ _                      ##
+##              |_|                               ##
+####################################################
+Starting Liquibase at 10:30:00 (version 4.23.0)
+Liquibase Version: 4.23.0
+Running Changeset: db/changelog/001-init.sql::1::author
+ERROR: Validation Failed: Unknown column 'email' in table 'users'
+Liquibase command 'update' failed.
+'''
+expected = "Running Changeset: db/changelog/001-init.sql::1::author\nERROR: Validation Failed: Unknown column 'email' in table 'users'\nLiquibase command 'update' failed."
+
+[[tests.liquibase]]
+name = "handles rollback command"
+input = '''
+####################################################
+##   Liquibase                                    ##
+####################################################
+Starting Liquibase at 11:00:00 (version 4.23.0)
+Rolling Back Changeset: db/changelog/003-indexes.sql::3::author
+Liquibase command 'rollback' was executed successfully.
+'''
+expected = "Rolling Back Changeset: db/changelog/003-indexes.sql::3::author\nLiquibase command 'rollback' was executed successfully."

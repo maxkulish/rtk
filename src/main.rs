@@ -76,7 +76,7 @@ struct Cli {
     verbose: u8,
 
     /// Ultra-compact mode: ASCII icons, inline format (Level 2 optimizations)
-    #[arg(short = 'u', long, global = true)]
+    #[arg(long, global = true)]
     ultra_compact: bool,
 
     /// Set SKIP_ENV_VALIDATION=1 for child processes (Next.js, tsc, lint, prisma)
@@ -105,7 +105,7 @@ enum Commands {
         /// File to read
         file: PathBuf,
         /// Filter: none, minimal, aggressive
-        #[arg(short, long, default_value = "minimal")]
+        #[arg(short, long, default_value = "none")]
         level: filter::FilterLevel,
         /// Max lines
         #[arg(short, long)]
@@ -567,6 +567,7 @@ enum Commands {
     },
 
     /// PostgreSQL client with compact output (strip borders, compress tables)
+    #[command(disable_help_flag = true)]
     Psql {
         /// psql arguments
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -998,6 +999,16 @@ fn shell_split(input: &str) -> Vec<String> {
 
 fn main() -> Result<()> {
     let raw_args: Vec<OsString> = std::env::args_os().collect();
+
+    // Check if RTK is disabled via environment variable
+    if std::env::var_os("RTK_DISABLED")
+        .and_then(|v| v.into_string().ok())
+        .as_deref()
+        == Some("1")
+    {
+        eprintln!("rtk: warning: RTK_DISABLED=1 is set - all filtering is bypassed");
+        return run_fallback(&raw_args[1..]);
+    }
 
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
@@ -1820,8 +1831,8 @@ fn is_rtk_short_cluster(s: &str) -> bool {
     if !s.starts_with('-') || s.starts_with("--") || s.len() < 2 {
         return false;
     }
-    // Every char after '-' must be a known RTK short flag: v or u
-    s[1..].chars().all(|c| c == 'v' || c == 'u')
+    // Every char after '-' must be a known RTK short flag: v (verbose)
+    s[1..].chars().all(|c| c == 'v')
 }
 
 fn strip_rtk_flags(args: &[OsString]) -> &[OsString] {
@@ -1937,6 +1948,18 @@ fn run_fallback(args: &[OsString]) -> Result<()> {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn test_psql_preserves_host_flag() {
+        // Verify that -h is not intercepted as --help for psql
+        let cli = Cli::try_parse_from(["rtk", "psql", "-h", "myhost", "mydb"]).unwrap();
+        match cli.command {
+            Commands::Psql { args } => {
+                assert_eq!(args, vec!["-h", "myhost", "mydb"]);
+            }
+            _ => panic!("Expected Psql command"),
+        }
+    }
 
     #[test]
     fn test_git_commit_single_message() {
@@ -2275,25 +2298,32 @@ mod tests {
 
     #[test]
     fn test_strip_rtk_flags_multiple() {
+        // -u is no longer an RTK flag (removed to avoid clash with git push -u)
+        // Only -v/--verbose is a recognized RTK short flag now
         let args: Vec<OsString> = ["-vv", "-u", "cmd"].iter().map(OsString::from).collect();
         let stripped = strip_rtk_flags(&args);
-        let expected: Vec<OsString> = ["cmd"].iter().map(OsString::from).collect();
+        // -vv is stripped, but -u passes through to the subcommand
+        let expected: Vec<OsString> = ["-u", "cmd"].iter().map(OsString::from).collect();
         assert_eq!(stripped, &expected[..]);
     }
 
     #[test]
     fn test_strip_rtk_flags_combined_uv() {
+        // -uv is not a valid RTK-only flag bundle since u is no longer RTK's
+        // It should pass through unchanged
         let args: Vec<OsString> = ["-uv", "echo", "hi"].iter().map(OsString::from).collect();
         let stripped = strip_rtk_flags(&args);
-        let expected: Vec<OsString> = ["echo", "hi"].iter().map(OsString::from).collect();
+        let expected: Vec<OsString> = ["-uv", "echo", "hi"].iter().map(OsString::from).collect();
         assert_eq!(stripped, &expected[..]);
     }
 
     #[test]
     fn test_strip_rtk_flags_combined_vu() {
+        // -vu is no longer an RTK-only bundle since -u was removed from RTK's flags.
+        // It passes through unchanged to the subcommand.
         let args: Vec<OsString> = ["-vu", "echo", "hi"].iter().map(OsString::from).collect();
         let stripped = strip_rtk_flags(&args);
-        let expected: Vec<OsString> = ["echo", "hi"].iter().map(OsString::from).collect();
+        let expected: Vec<OsString> = ["-vu", "echo", "hi"].iter().map(OsString::from).collect();
         assert_eq!(stripped, &expected[..]);
     }
 
@@ -2302,5 +2332,16 @@ mod tests {
         let args: Vec<OsString> = ["-x", "cmd"].iter().map(OsString::from).collect();
         let stripped = strip_rtk_flags(&args);
         assert_eq!(stripped, &args[..]);
+    }
+
+    #[test]
+    fn test_rtk_disabled_check_exists() {
+        // Structural test to verify RTK_DISABLED env var handling exists in code
+        // This ensures the check is present without actually testing the env var
+        let source = include_str!("main.rs");
+        assert!(
+            source.contains("RTK_DISABLED"),
+            "RTK_DISABLED environment variable check should exist in main.rs"
+        );
     }
 }

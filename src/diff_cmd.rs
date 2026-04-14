@@ -165,15 +165,11 @@ fn condense_unified_diff(diff: &str) -> String {
 
     for line in diff.lines() {
         if line.starts_with("diff --git") || line.starts_with("--- ") || line.starts_with("+++ ") {
-            // File header
             if line.starts_with("+++ ") {
                 if !current_file.is_empty() && (added > 0 || removed > 0) {
                     result.push(format!("📄 {} (+{} -{})", current_file, added, removed));
-                    for c in changes.iter().take(10) {
+                    for c in &changes {
                         result.push(format!("  {}", c));
-                    }
-                    if changes.len() > 10 {
-                        result.push(format!("  ... +{} more", changes.len() - 10));
                     }
                 }
                 current_file = line
@@ -186,25 +182,18 @@ fn condense_unified_diff(diff: &str) -> String {
             }
         } else if line.starts_with('+') && !line.starts_with("+++") {
             added += 1;
-            if changes.len() < 15 {
-                changes.push(truncate(line, 70));
-            }
+            changes.push(line.to_string());
         } else if line.starts_with('-') && !line.starts_with("---") {
             removed += 1;
-            if changes.len() < 15 {
-                changes.push(truncate(line, 70));
-            }
+            changes.push(line.to_string());
         }
     }
 
     // Last file
     if !current_file.is_empty() && (added > 0 || removed > 0) {
         result.push(format!("📄 {} (+{} -{})", current_file, added, removed));
-        for c in changes.iter().take(10) {
+        for c in &changes {
             result.push(format!("  {}", c));
-        }
-        if changes.len() > 10 {
-            result.push(format!("  ... +{} more", changes.len() - 10));
         }
     }
 
@@ -363,5 +352,37 @@ diff --git a/b.rs b/b.rs
     fn test_condense_unified_diff_empty() {
         let result = condense_unified_diff("");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_condense_unified_diff_no_truncation() {
+        let mut diff = String::from("--- a/big.rs\n+++ b/big.rs\n");
+        diff.push_str("@@ -1,0 +1,200 @@\n");
+        for i in 0..200 {
+            diff.push_str(&format!("+line number {}\n", i));
+        }
+        let result = condense_unified_diff(&diff);
+        for i in 0..200 {
+            assert!(
+                result.contains(&format!("+line number {}", i)),
+                "Line {} should be present in output",
+                i
+            );
+        }
+        assert!(
+            !result.contains("more"),
+            "Should have no truncation indicator"
+        );
+    }
+
+    #[test]
+    fn test_condense_unified_diff_long_lines_preserved() {
+        let long_line = format!("+{}", "x".repeat(500));
+        let diff = format!("--- a/file.rs\n+++ b/file.rs\n@@ -1 +1 @@\n{}\n", long_line);
+        let result = condense_unified_diff(&diff);
+        assert!(
+            result.contains(&"x".repeat(500)),
+            "Long lines should not be truncated"
+        );
     }
 }
