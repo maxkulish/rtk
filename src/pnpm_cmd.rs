@@ -49,24 +49,46 @@ impl OutputParser for PnpmListParser {
     type Output = DependencyState;
 
     fn parse(input: &str) -> ParseResult<DependencyState> {
-        // Tier 1: Try JSON parsing
-        match serde_json::from_str::<PnpmListOutput>(input) {
-            Ok(json) => {
+        // Tier 1: Try JSON parsing - array format first, then object format
+        // pnpm can output either [{...}] or {...}
+        let parse_attempt = serde_json::from_str::<Vec<PnpmListOutput>>(input)
+            .map(|array| {
+                // Array format: merge all objects
                 let mut dependencies = Vec::new();
                 let mut total_count = 0;
 
-                for (name, pkg) in &json.packages {
-                    collect_dependencies(name, pkg, false, &mut dependencies, &mut total_count);
+                for json in &array {
+                    for (name, pkg) in &json.packages {
+                        collect_dependencies(name, pkg, false, &mut dependencies, &mut total_count);
+                    }
                 }
 
-                let result = DependencyState {
+                DependencyState {
                     total_packages: total_count,
-                    outdated_count: 0, // list doesn't provide outdated info
+                    outdated_count: 0,
                     dependencies,
-                };
+                }
+            })
+            .or_else(|_| {
+                // Object format (original)
+                serde_json::from_str::<PnpmListOutput>(input).map(|json| {
+                    let mut dependencies = Vec::new();
+                    let mut total_count = 0;
 
-                ParseResult::Full(result)
-            }
+                    for (name, pkg) in &json.packages {
+                        collect_dependencies(name, pkg, false, &mut dependencies, &mut total_count);
+                    }
+
+                    DependencyState {
+                        total_packages: total_count,
+                        outdated_count: 0,
+                        dependencies,
+                    }
+                })
+            });
+
+        match parse_attempt {
+            Ok(result) => ParseResult::Full(result),
             Err(e) => {
                 // Tier 2: Try text extraction
                 match extract_list_text(input) {
@@ -291,15 +313,34 @@ pub fn run(cmd: PnpmCommand, args: &[String], verbose: u8) -> Result<()> {
     }
 }
 
+/// Build pnpm list command arguments, preserving --filter flags
+fn build_pnpm_list_args(depth: usize, args: &[String]) -> Vec<String> {
+    let mut cmd_args = vec!["list".to_string(), format!("--depth={}", depth)];
+
+    // Collect --filter flags (need to be before --json)
+    let mut i = 0;
+    while i < args.len() {
+        if args[i] == "--filter" && i + 1 < args.len() {
+            cmd_args.push("--filter".to_string());
+            cmd_args.push(args[i + 1].clone());
+            i += 2;
+        } else {
+            cmd_args.push(args[i].clone());
+            i += 1;
+        }
+    }
+
+    cmd_args.push("--json".to_string());
+    cmd_args
+}
+
 fn run_list(depth: usize, args: &[String], verbose: u8) -> Result<()> {
     let timer = tracking::TimedExecution::start();
 
-    let mut cmd = Command::new("pnpm");
-    cmd.arg("list");
-    cmd.arg(format!("--depth={}", depth));
-    cmd.arg("--json");
+    let cmd_args = build_pnpm_list_args(depth, args);
 
-    for arg in args {
+    let mut cmd = Command::new("pnpm");
+    for arg in &cmd_args {
         cmd.arg(arg);
     }
 
