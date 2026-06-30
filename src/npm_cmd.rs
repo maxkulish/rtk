@@ -69,6 +69,21 @@ const NPM_SUBCOMMANDS: &[&str] = &[
     "start",
     "stop",
     "restart",
+    // npm 9/10 subcommands (upstream #2663)
+    "query",
+    "sbom",
+    "completion",
+    "run-script",
+    "org",
+    "find-dupes",
+    "shrinkwrap",
+    "edit",
+    "explore",
+    "ll",
+    "la",
+    "set-script",
+    "unstar",
+    "hook",
 ];
 
 pub fn run(args: &[String], verbose: u8, skip_env: bool) -> Result<()> {
@@ -225,6 +240,33 @@ npm notice
 
         // Explicit "run" should NOT inject another "run"
         assert!(!needs_run_injection(&["run", "build"]));
+    }
+
+    #[test]
+    fn test_npm_modern_subcommands_no_run_injection() {
+        // Regression for upstream #2663: npm 9/10 subcommands missing from the
+        // allowlist were turned into `npm run <subcommand>` -> "Missing script".
+        fn needs_run_injection(arg: &str) -> bool {
+            let is_run_explicit = arg == "run";
+            let is_subcommand = NPM_SUBCOMMANDS.contains(&arg) || arg.starts_with('-');
+            !is_run_explicit && !is_subcommand
+        }
+        for subcmd in &[
+            "query",
+            "sbom",
+            "completion",
+            "run-script",
+            "org",
+            "find-dupes",
+            "shrinkwrap",
+            "edit",
+            "explore",
+        ] {
+            assert!(
+                !needs_run_injection(subcmd),
+                "'npm {subcmd}' must NOT inject 'run'"
+            );
+        }
     }
 
     #[test]
