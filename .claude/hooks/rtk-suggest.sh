@@ -6,7 +6,8 @@
 set -euo pipefail
 
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+# Accept both payload shapes (tool_input current, input fallback).
+CMD=$(echo "$INPUT" | jq -r '.tool_input.command // .input.command // empty')
 
 if [ -z "$CMD" ]; then
   exit 0

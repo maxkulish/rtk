@@ -23,7 +23,9 @@ fi
 set -euo pipefail
 
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty')
+# Accept both payload shapes: tool_input (current) and input (defensive fallback)
+# so a Claude Code payload key change can't silently disable all rewrites.
+CMD=$(echo "$INPUT" | jq -r '.tool_input.command // .input.command // empty')
 
 if [ -z "$CMD" ]; then
   _rtk_audit_log "skip:empty" "-"
@@ -205,8 +207,9 @@ fi
 
 _rtk_audit_log "rewrite" "$CMD" "$REWRITTEN"
 
-# Build the updated tool_input with all original fields preserved, only command changed
-ORIGINAL_INPUT=$(echo "$INPUT" | jq -c '.tool_input')
+# Build the updated tool input with all original fields preserved, only command changed.
+# Read from whichever key the payload used (tool_input preferred, input fallback).
+ORIGINAL_INPUT=$(echo "$INPUT" | jq -c '.tool_input // .input')
 UPDATED_INPUT=$(echo "$ORIGINAL_INPUT" | jq --arg cmd "$REWRITTEN" '.command = $cmd')
 
 # Output the rewrite instruction
