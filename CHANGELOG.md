@@ -5,6 +5,22 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0](https://github.com/maxkulish/rtk/compare/v0.26.0...v0.27.0) (2026-06-30)
+
+
+### Features
+
+* **guard:** add never-worse output guard and reset SIGPIPE on broken pipe ([d8ebdf8](https://github.com/maxkulish/rtk/commit/d8ebdf8148408bbdb792bd7ec06836bde2d9e67a))
+
+
+### Bug Fixes
+
+* **diff:** exit 1 when files differ and count modified-only changes ([2653cf5](https://github.com/maxkulish/rtk/commit/2653cf5b97d63620bd05803508dfeac463b28194))
+* **filter:** preserve code around inline block comments ([2450e11](https://github.com/maxkulish/rtk/commit/2450e119d3e94a7a3c25fd7c72c81f439172b79a))
+* **git:** correct branch detection, merge-commit -n, and stash/worktree exit codes ([68dd7e8](https://github.com/maxkulish/rtk/commit/68dd7e8de0ba8ef33e154422225dab36c5c7a173))
+* **hook:** accept both tool_input and input payload shapes ([f1e7fd4](https://github.com/maxkulish/rtk/commit/f1e7fd4bdcecadd2c533b5a54a1b2cd0bdfd7353))
+* **npm:** add npm 9/10 subcommands to the run-injection allowlist ([a600046](https://github.com/maxkulish/rtk/commit/a6000460700d1199bf9e373fc00d0502889d8ff1))
+
 ## [0.26.0](https://github.com/maxkulish/rtk/compare/v0.25.1...v0.26.0) (2026-04-14)
 
 
