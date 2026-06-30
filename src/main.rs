@@ -20,6 +20,7 @@ mod go_cmd;
 mod golangci_cmd;
 mod grep_cmd;
 mod gt_cmd;
+mod guard;
 mod hook_audit_cmd;
 mod init;
 mod json_cmd;
@@ -998,6 +999,15 @@ fn shell_split(input: &str) -> Vec<String> {
 }
 
 fn main() -> Result<()> {
+    // Restore the default SIGPIPE handler. Rust's runtime sets SIGPIPE to SIG_IGN,
+    // so writing to a closed pipe (e.g. `rtk git log | head`) returns EPIPE and the
+    // stdout writer panics — which `panic = "abort"` turns into SIGABRT (exit 134).
+    // Resetting to SIG_DFL gives the conventional quiet-exit Unix behavior instead.
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_DFL);
+    }
+
     let raw_args: Vec<OsString> = std::env::args_os().collect();
 
     // Check if RTK is disabled via environment variable

@@ -476,7 +476,8 @@ fn run_install(packages: &[String], args: &[String], verbose: u8) -> Result<()> 
     }
 
     let combined = format!("{}{}", stdout, stderr);
-    let filtered = filter_pnpm_install(&combined);
+    let compacted = filter_pnpm_install(&combined);
+    let filtered = crate::guard::never_worse(&combined, &compacted).to_string();
 
     println!("{}", filtered);
 

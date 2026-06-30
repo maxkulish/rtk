@@ -123,7 +123,8 @@ pub fn run_build(args: &[String], verbose: u8) -> Result<()> {
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
-    let filtered = filter_go_build(&raw);
+    let compacted = filter_go_build(&raw);
+    let filtered = crate::guard::never_worse(&raw, &compacted).to_string();
 
     if let Some(hint) = crate::tee::tee_and_hint(&raw, "go_build", exit_code) {
         if !filtered.is_empty() {
@@ -176,7 +177,8 @@ pub fn run_vet(args: &[String], verbose: u8) -> Result<()> {
         .status
         .code()
         .unwrap_or(if output.status.success() { 0 } else { 1 });
-    let filtered = filter_go_vet(&raw);
+    let compacted = filter_go_vet(&raw);
+    let filtered = crate::guard::never_worse(&raw, &compacted).to_string();
 
     if let Some(hint) = crate::tee::tee_and_hint(&raw, "go_vet", exit_code) {
         if !filtered.is_empty() {

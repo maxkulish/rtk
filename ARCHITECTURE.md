@@ -305,6 +305,7 @@ SHARED            utils.rs          Helpers                N/A        ✓
                   rewrite_cmd.rs    Hook rewrite dispatch  N/A        ✓
                   toml_filter.rs    TOML filter DSL engine N/A        ✓
                   parser.rs         Parser infrastructure  N/A        ✓
+                  guard.rs          Never-worse output guard N/A      ✓
 
 ANALYTICS         cc_economics.rs   Spending vs savings    N/A        ✓
                   ccusage.rs        Claude Code API usage  N/A        ✓
@@ -312,12 +313,12 @@ ANALYTICS         cc_economics.rs   Spending vs savings    N/A        ✓
                   learn/            CLI correction detect  N/A        ✓
 ```
 
-**Total: 55 modules** (37 command modules + 18 infrastructure modules)
+**Total: 56 modules** (37 command modules + 19 infrastructure modules)
 
 ### Module Count Breakdown
 
 - **Command Modules**: 37 (directly exposed to users)
-- **Infrastructure Modules**: 18 (utils, filter, tracking, tee, config, parser, toml_filter, etc.)
+- **Infrastructure Modules**: 19 (utils, filter, tracking, tee, config, parser, toml_filter, guard, etc.)
 - **Git Commands**: 7 operations + gt (status, diff, log, add, commit, push, branch/checkout)
 - **JS/TS Tooling**: 9 modules (modern frontend/fullstack development)
 - **Python Tooling**: 4 modules (ruff, pytest, pip, mypy)

@@ -590,6 +590,7 @@ dependencies = [
  "dirs",
  "ignore",
  "lazy_static",
+ "libc",
  "regex",
  "rusqlite",
  "serde",
