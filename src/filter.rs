@@ -155,6 +155,42 @@ impl FilterStrategy for NoFilter {
     }
 }
 
+/// Remove block-comment spans from a single line while keeping surrounding code.
+///
+/// Tracks whether the line ends still inside an unterminated block comment so the
+/// caller can carry that state to the next line. Returns the code that remains after
+/// stripping comment spans plus the in-block state at end of line. This is a simple
+/// heuristic (no string-literal awareness) consistent with the rest of MinimalFilter.
+fn strip_block_comments_line(line: &str, start: &str, end: &str, in_block: bool) -> (String, bool) {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    let mut inside = in_block;
+    loop {
+        if inside {
+            match rest.find(end) {
+                Some(pos) => {
+                    rest = &rest[pos + end.len()..];
+                    inside = false;
+                }
+                None => break, // remainder of the line is comment
+            }
+        } else {
+            match rest.find(start) {
+                Some(pos) => {
+                    out.push_str(&rest[..pos]);
+                    rest = &rest[pos + start.len()..];
+                    inside = true;
+                }
+                None => {
+                    out.push_str(rest);
+                    break;
+                }
+            }
+        }
+    }
+    (out, inside)
+}
+
 pub struct MinimalFilter;
 
 lazy_static! {
@@ -172,21 +208,32 @@ impl FilterStrategy for MinimalFilter {
         for line in content.lines() {
             let trimmed = line.trim();
 
-            // Handle block comments
+            // Handle block comments. Strip comment spans inline while preserving any
+            // surrounding code, instead of dropping the whole line (upstream #2385/#2714).
+            let stripped_holder: String;
+            let mut line: &str = line;
             if let (Some(start), Some(end)) = (patterns.block_start, patterns.block_end) {
-                if !in_docstring
-                    && trimmed.contains(start)
-                    && !trimmed.starts_with(patterns.doc_block_start.unwrap_or("###"))
-                {
-                    in_block_comment = true;
-                }
-                if in_block_comment {
-                    if trimmed.contains(end) {
-                        in_block_comment = false;
+                let is_doc_block = patterns
+                    .doc_block_start
+                    .map(|d| trimmed.starts_with(d))
+                    .unwrap_or(false);
+                if !in_docstring && !is_doc_block {
+                    let was_in_block = in_block_comment;
+                    let (code, still_in_block) =
+                        strip_block_comments_line(line, start, end, in_block_comment);
+                    in_block_comment = still_in_block;
+                    // Drop the line only when nothing but a comment was present. A blank
+                    // code line (no comment markers) falls through to blank-line handling.
+                    if code.trim().is_empty() && (was_in_block || trimmed.contains(start)) {
+                        continue;
                     }
-                    continue;
+                    if code != line {
+                        stripped_holder = code;
+                        line = &stripped_holder;
+                    }
                 }
             }
+            let trimmed = line.trim();
 
             // Handle Python docstrings (keep them in minimal mode)
             if *lang == Language::Python && trimmed.starts_with("\"\"\"") {
@@ -415,6 +462,59 @@ fn main() {
         let filter = MinimalFilter;
         let result = filter.filter(code, &Language::Rust);
         assert!(!result.contains("// This is a comment"));
+        assert!(result.contains("fn main()"));
+    }
+
+    #[test]
+    fn test_minimal_filter_preserves_code_around_inline_block_comment() {
+        // Regression for upstream #2385/#2714: a line that opens AND closes a block
+        // comment inline must keep the surrounding code, not be dropped wholesale.
+        let code = "let x = compute(a /* offset */, b);\n";
+        let result = MinimalFilter.filter(code, &Language::Rust);
+        assert!(
+            result.contains("compute(a"),
+            "code before inline comment lost: {result:?}"
+        );
+        assert!(
+            result.contains(", b);"),
+            "code after inline comment lost: {result:?}"
+        );
+        assert!(
+            !result.contains("offset"),
+            "inline comment not stripped: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_minimal_filter_preserves_code_before_block_start() {
+        // Code before a multi-line block comment opener must survive, and code after
+        // the closer on the final line must survive too.
+        let code = "let y = 7; /* begin\n still comment\n end */ let z = 8;\n";
+        let result = MinimalFilter.filter(code, &Language::Rust);
+        assert!(
+            result.contains("let y = 7;"),
+            "pre-block code lost: {result:?}"
+        );
+        assert!(
+            result.contains("let z = 8;"),
+            "post-block code lost: {result:?}"
+        );
+        assert!(
+            !result.contains("still comment"),
+            "block body not stripped: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_minimal_filter_drops_pure_block_comment() {
+        // A line that is nothing but a block comment is still dropped (no code loss).
+        let code = "fn main() {\n    /* just a comment */\n    work();\n}\n";
+        let result = MinimalFilter.filter(code, &Language::Rust);
+        assert!(
+            !result.contains("just a comment"),
+            "pure comment kept: {result:?}"
+        );
+        assert!(result.contains("work();"), "real code dropped: {result:?}");
         assert!(result.contains("fn main()"));
     }
 
