@@ -4,8 +4,71 @@ use regex::Regex;
 use std::collections::HashMap;
 use std::process::{Command, Stdio};
 
+/// Which search engine the user invoked. RTK runs the engine that was asked for
+/// instead of silently substituting one for the other (their regex dialects and
+/// ignore semantics differ, and shape-shifting the output confuses the caller).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchEngine {
+    Grep,
+    Rg,
+}
+
+impl SearchEngine {
+    fn binary(self) -> &'static str {
+        match self {
+            SearchEngine::Grep => "grep",
+            SearchEngine::Rg => "rg",
+        }
+    }
+}
+
+/// Build the search subprocess for the chosen engine.
+///
+/// `rg` gets PCRE semantics (BRE `\|` alternation translated to `|`) and the
+/// grep-ism `-r` stripped (rg is recursive by default; rg `-r` means --replace).
+/// `grep` runs with its native BRE semantics untouched, recursive + line-numbered,
+/// and `-e PATTERN` so a pattern starting with `-` is not parsed as a flag.
+fn build_search_command(
+    engine: SearchEngine,
+    pattern: &str,
+    path: &str,
+    file_type: Option<&str>,
+    extra_args: &[String],
+) -> Command {
+    match engine {
+        SearchEngine::Rg => {
+            let rg_pattern = pattern.replace(r"\|", "|");
+            let mut cmd = Command::new("rg");
+            cmd.args(["-n", "--no-heading", &rg_pattern, path]);
+            if let Some(ft) = file_type {
+                cmd.arg("--type").arg(ft);
+            }
+            for arg in extra_args {
+                if arg == "-r" || arg == "--recursive" {
+                    continue;
+                }
+                cmd.arg(arg);
+            }
+            cmd
+        }
+        SearchEngine::Grep => {
+            let mut cmd = Command::new("grep");
+            cmd.arg("-rn");
+            if let Some(ft) = file_type {
+                cmd.arg(format!("--include=*.{ft}"));
+            }
+            for arg in extra_args {
+                cmd.arg(arg);
+            }
+            cmd.arg("-e").arg(pattern).arg(path);
+            cmd
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn run(
+    engine: SearchEngine,
     pattern: &str,
     path: &str,
     max_line_len: usize,
@@ -18,37 +81,13 @@ pub fn run(
     let timer = tracking::TimedExecution::start();
 
     if verbose > 0 {
-        eprintln!("grep: '{}' in {}", pattern, path);
+        eprintln!("{}: '{}' in {}", engine.binary(), pattern, path);
     }
 
-    // Fix: convert BRE alternation \| → | for rg (which uses PCRE-style regex)
-    let rg_pattern = pattern.replace(r"\|", "|");
-
-    let mut rg_cmd = Command::new("rg");
-    rg_cmd.args(["-n", "--no-heading", &rg_pattern, path]);
-
-    if let Some(ft) = file_type {
-        rg_cmd.arg("--type").arg(ft);
-    }
-
-    for arg in extra_args {
-        // Fix: skip grep-ism -r flag (rg is recursive by default; rg -r means --replace)
-        if arg == "-r" || arg == "--recursive" {
-            continue;
-        }
-        rg_cmd.arg(arg);
-    }
-
-    let output = rg_cmd
+    let output = build_search_command(engine, pattern, path, file_type, extra_args)
         .stdin(Stdio::null())
         .output()
-        .or_else(|_| {
-            Command::new("grep")
-                .args(["-rn", pattern, path])
-                .stdin(Stdio::null())
-                .output()
-        })
-        .context("grep/rg failed")?;
+        .with_context(|| format!("Failed to run {}", engine.binary()))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let exit_code = output.status.code().unwrap_or(1);
@@ -66,8 +105,8 @@ pub fn run(
         let msg = format!("🔍 0 for '{}'", pattern);
         println!("{}", msg);
         timer.track(
-            &format!("grep -rn '{}' {}", pattern, path),
-            "rtk grep",
+            &format!("{} '{}' {}", engine.binary(), pattern, path),
+            &format!("rtk {}", engine.binary()),
             &raw_output,
             &msg,
         );
@@ -133,8 +172,8 @@ pub fn run(
 
     print!("{}", rtk_output);
     timer.track(
-        &format!("grep -rn '{}' {}", pattern, path),
-        "rtk grep",
+        &format!("{} '{}' {}", engine.binary(), pattern, path),
+        &format!("rtk {}", engine.binary()),
         &raw_output,
         &rtk_output,
     );
@@ -291,6 +330,65 @@ mod tests {
             );
         }
         // If rg is not installed, skip gracefully (test still passes)
+    }
+
+    fn cmd_args(cmd: &Command) -> Vec<String> {
+        cmd.get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn test_build_grep_runs_grep_without_translation() {
+        // grep keeps native BRE: \| is the alternation operator, do NOT translate it.
+        let cmd = build_search_command(SearchEngine::Grep, r"foo\|bar", "src", None, &[]);
+        assert_eq!(cmd.get_program().to_string_lossy(), "grep");
+        let args = cmd_args(&cmd);
+        assert!(args.contains(&"-rn".to_string()));
+        assert!(args.contains(&"-e".to_string()), "pattern passed via -e");
+        assert!(
+            args.contains(&r"foo\|bar".to_string()),
+            "BRE pattern untouched"
+        );
+        assert!(args.contains(&"src".to_string()));
+    }
+
+    #[test]
+    fn test_build_grep_preserves_recursive_flag() {
+        // -r is grep's recursive flag and must be kept (unlike for rg).
+        let extra = vec!["-r".to_string(), "-i".to_string()];
+        let cmd = build_search_command(SearchEngine::Grep, "x", ".", None, &extra);
+        let args = cmd_args(&cmd);
+        assert!(args.contains(&"-r".to_string()));
+        assert!(args.contains(&"-i".to_string()));
+    }
+
+    #[test]
+    fn test_build_grep_file_type_to_include() {
+        let cmd = build_search_command(SearchEngine::Grep, "x", ".", Some("rs"), &[]);
+        assert!(cmd_args(&cmd).iter().any(|a| a == "--include=*.rs"));
+    }
+
+    #[test]
+    fn test_build_rg_runs_rg_and_translates_alternation() {
+        let cmd = build_search_command(SearchEngine::Rg, r"foo\|bar", "src", None, &[]);
+        assert_eq!(cmd.get_program().to_string_lossy(), "rg");
+        let args = cmd_args(&cmd);
+        assert!(
+            args.contains(&"foo|bar".to_string()),
+            "rg gets PCRE alternation"
+        );
+        assert!(args.contains(&"--no-heading".to_string()));
+    }
+
+    #[test]
+    fn test_build_rg_strips_recursive_flag() {
+        // For rg, -r means --replace; the grep-ism must be dropped.
+        let extra = vec!["-r".to_string(), "-i".to_string()];
+        let cmd = build_search_command(SearchEngine::Rg, "x", ".", None, &extra);
+        let args = cmd_args(&cmd);
+        assert!(!args.contains(&"-r".to_string()));
+        assert!(args.contains(&"-i".to_string()));
     }
 
     #[test]

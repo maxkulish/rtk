@@ -280,6 +280,33 @@ enum Commands {
         extra_args: Vec<String>,
     },
 
+    /// Compact ripgrep - runs rg (not grep), groups by file
+    Rg {
+        /// Pattern to search
+        pattern: String,
+        /// Path to search in
+        #[arg(default_value = ".")]
+        path: String,
+        /// Max line length
+        #[arg(short = 'l', long, default_value = "80")]
+        max_len: usize,
+        /// Max results to show
+        #[arg(short, long, default_value = "50")]
+        max: usize,
+        /// Show only match context (not full line)
+        #[arg(short, long)]
+        context_only: bool,
+        /// Filter by file type (e.g., ts, py, rust)
+        #[arg(short = 't', long)]
+        file_type: Option<String>,
+        /// Show line numbers (always on, accepted for grep/rg compatibility)
+        #[arg(short = 'n', long)]
+        line_numbers: bool,
+        /// Extra ripgrep arguments (e.g., -i, -A 3, -w, --glob)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        extra_args: Vec<String>,
+    },
+
     /// Initialize rtk instructions in CLAUDE.md
     Init {
         /// Add to global ~/.claude/CLAUDE.md instead of local
@@ -1287,6 +1314,30 @@ fn main() -> Result<()> {
             extra_args,
         } => {
             grep_cmd::run(
+                grep_cmd::SearchEngine::Grep,
+                &pattern,
+                &path,
+                max_len,
+                max,
+                context_only,
+                file_type.as_deref(),
+                &extra_args,
+                cli.verbose,
+            )?;
+        }
+
+        Commands::Rg {
+            pattern,
+            path,
+            max_len,
+            max,
+            context_only,
+            file_type,
+            line_numbers: _, // no-op: line numbers always enabled in grep_cmd::run
+            extra_args,
+        } => {
+            grep_cmd::run(
+                grep_cmd::SearchEngine::Rg,
                 &pattern,
                 &path,
                 max_len,

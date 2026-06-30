@@ -108,7 +108,8 @@ elif echo "$MATCH_CMD" | grep -qE '^cargo[[:space:]]+fmt([[:space:]]|$)'; then
 elif echo "$MATCH_CMD" | grep -qE '^cat[[:space:]]+'; then
   REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed 's/^cat /rtk read /')"
 elif echo "$MATCH_CMD" | grep -qE '^(rg|grep)[[:space:]]+'; then
-  REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed -E 's/^(rg|grep) /rtk grep /')"
+  # Preserve the invoked engine: rg -> rtk rg, grep -> rtk grep (no substitution).
+  REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed -E 's/^rg /rtk rg /; s/^grep /rtk grep /')"
 elif echo "$MATCH_CMD" | grep -qE '^ls([[:space:]]|$)'; then
   REWRITTEN="${ENV_PREFIX}$(echo "$CMD_BODY" | sed 's/^ls/rtk ls/')"
 elif echo "$MATCH_CMD" | grep -qE '^tree([[:space:]]|$)'; then
