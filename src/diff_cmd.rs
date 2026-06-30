@@ -21,7 +21,7 @@ pub fn run(file1: &Path, file2: &Path, verbose: u8) -> Result<()> {
     let diff = compute_diff(&lines1, &lines2);
     let mut rtk = String::new();
 
-    if diff.added == 0 && diff.removed == 0 {
+    if diff.added == 0 && diff.removed == 0 && diff.modified == 0 {
         rtk.push_str("✅ Files are identical");
         println!("{}", rtk);
         timer.track(
@@ -62,7 +62,8 @@ pub fn run(file1: &Path, file2: &Path, verbose: u8) -> Result<()> {
         &raw,
         &rtk,
     );
-    Ok(())
+    // POSIX diff exits 1 when files differ so shell `&&`/`if diff` gates behave (issue #2446).
+    std::process::exit(diff_exit_code(&diff));
 }
 
 /// Run diff from stdin (piped command output)
@@ -142,6 +143,16 @@ fn compute_diff(lines1: &[&str], lines2: &[&str]) -> DiffResult {
     }
 }
 
+/// POSIX `diff` exit convention for a file-vs-file comparison: 0 when identical,
+/// 1 when they differ. (2 is reserved for errors, handled via Result/`?` upstream.)
+fn diff_exit_code(diff: &DiffResult) -> i32 {
+    if diff.added > 0 || diff.removed > 0 || diff.modified > 0 {
+        1
+    } else {
+        0
+    }
+}
+
 fn similarity(a: &str, b: &str) -> f64 {
     let a_chars: std::collections::HashSet<char> = a.chars().collect();
     let b_chars: std::collections::HashSet<char> = b.chars().collect();
@@ -203,6 +214,32 @@ fn condense_unified_diff(diff: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- diff_exit_code (POSIX exit convention, issue #2446) ---
+
+    #[test]
+    fn test_diff_exit_code_identical_is_zero() {
+        let r = compute_diff(&["a", "b"], &["a", "b"]);
+        assert_eq!(diff_exit_code(&r), 0);
+    }
+
+    #[test]
+    fn test_diff_exit_code_modified_is_one() {
+        let r = compute_diff(&["let x = 1;"], &["let x = 2;"]);
+        assert_eq!(diff_exit_code(&r), 1);
+    }
+
+    #[test]
+    fn test_diff_exit_code_added_is_one() {
+        let r = compute_diff(&["a"], &["a", "b"]);
+        assert_eq!(diff_exit_code(&r), 1);
+    }
+
+    #[test]
+    fn test_diff_exit_code_removed_is_one() {
+        let r = compute_diff(&["a", "b"], &["a"]);
+        assert_eq!(diff_exit_code(&r), 1);
+    }
 
     // --- similarity ---
 
