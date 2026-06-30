@@ -14,12 +14,14 @@ pub fn run_err(command: &str, verbose: u8) -> Result<()> {
     let output = if cfg!(target_os = "windows") {
         Command::new("cmd")
             .args(["/C", command])
+            .stdin(crate::utils::child_stdin())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
     } else {
         Command::new("sh")
             .args(["-c", command])
+            .stdin(crate::utils::child_stdin())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
@@ -77,12 +79,14 @@ pub fn run_test(command: &str, verbose: u8) -> Result<()> {
     let output = if cfg!(target_os = "windows") {
         Command::new("cmd")
             .args(["/C", command])
+            .stdin(crate::utils::child_stdin())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
     } else {
         Command::new("sh")
             .args(["-c", command])
+            .stdin(crate::utils::child_stdin())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()

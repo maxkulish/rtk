@@ -31,6 +31,7 @@ pub fn run(args: &[String], verbose: u8) -> Result<()> {
     }
 
     let output = cmd
+        .stdin(crate::utils::child_stdin())
         .output()
         .context("Failed to run psql (is PostgreSQL client installed?)")?;
     let stdout = String::from_utf8_lossy(&output.stdout);

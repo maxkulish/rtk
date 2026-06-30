@@ -7,7 +7,31 @@
 
 use anyhow::{Context, Result};
 use regex::Regex;
-use std::process::Command;
+use std::io::IsTerminal;
+use std::process::{Command, Stdio};
+
+/// Decide whether a child process should inherit rtk's stdin.
+///
+/// Returns true when rtk's stdin is piped (not a terminal), so a stdin-consuming
+/// wrapped command — `git apply`, `psql < file`, `kubectl apply -f -` — receives
+/// its input instead of an empty stream. When stdin is an interactive terminal we
+/// stay detached so a wrapped command can't block waiting on a prompt that the
+/// filtered execution path would never surface. Refs upstream rtk-ai/rtk#2431.
+pub fn should_inherit_stdin(stdin_is_terminal: bool) -> bool {
+    !stdin_is_terminal
+}
+
+/// Stdio disposition for a child process based on rtk's current stdin.
+///
+/// Forwards piped stdin to the child and stays null on an interactive terminal.
+/// See [`should_inherit_stdin`].
+pub fn child_stdin() -> Stdio {
+    if should_inherit_stdin(std::io::stdin().is_terminal()) {
+        Stdio::inherit()
+    } else {
+        Stdio::null()
+    }
+}
 
 /// Tronque une chaîne à `max_len` caractères avec "..." si nécessaire.
 ///
@@ -70,6 +94,7 @@ pub fn strip_ansi(text: &str) -> String {
 pub fn execute_command(cmd: &str, args: &[&str]) -> Result<(String, String, i32)> {
     let output = Command::new(cmd)
         .args(args)
+        .stdin(child_stdin())
         .output()
         .context(format!("Failed to execute {}", cmd))?;
 
@@ -287,6 +312,18 @@ fn test_ensure_failure_visibility_with_stderr() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_should_inherit_stdin_when_piped() {
+        // Piped stdin (not a terminal) -> forward to the child.
+        assert!(should_inherit_stdin(false));
+    }
+
+    #[test]
+    fn test_should_inherit_stdin_stays_null_on_terminal() {
+        // Interactive terminal -> stay detached so the child can't block on a prompt.
+        assert!(!should_inherit_stdin(true));
+    }
 
     #[test]
     fn test_truncate_short_string() {
