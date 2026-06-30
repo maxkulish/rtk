@@ -92,11 +92,36 @@ pub fn run(
 /// path-like argument (contains `/` or `\`, or starts with `.` or `~`)
 /// when `--` is absent from the args vec.
 fn normalize_diff_args(args: &[String]) -> Vec<String> {
+    normalize_diff_args_impl(args, |p| std::path::Path::new(p).exists())
+}
+
+/// Testable core of `normalize_diff_args` — accepts an injectable existence checker.
+///
+/// Path detection uses a three-tier strategy so branch names with `/`
+/// (e.g. `feature/auth`) are not mistaken for pathspecs (issue #1431):
+/// 1. Explicit path prefixes (`.`, `~`) → always a path, no filesystem check.
+/// 2. Contains a path separator (`/`, `\`) → use `path_exists` to distinguish a
+///    branch name (not on disk) from a real path (e.g. `src/main.rs`).
+/// 3. Bare word with no separator → never inject `--`, even if a same-named file
+///    exists, so a ref/branch is never misread as a path.
+fn normalize_diff_args_impl<F>(args: &[String], path_exists: F) -> Vec<String>
+where
+    F: Fn(&str) -> bool,
+{
     if args.iter().any(|a| a == "--") {
         return args.to_vec();
     }
-    let path_idx = args.iter().position(|a| {
-        a.contains('/') || a.contains('\\') || a.starts_with('.') || a.starts_with('~')
+    let path_idx = args.iter().position(|arg| {
+        if arg.starts_with('-') {
+            return false;
+        }
+        if arg.starts_with('.') || arg.starts_with('~') {
+            return true;
+        }
+        if arg.contains('/') || arg.contains('\\') {
+            return path_exists(arg);
+        }
+        false
     });
     match path_idx {
         Some(idx) => {
@@ -436,6 +461,19 @@ fn parse_user_limit(args: &[String]) -> Option<usize> {
     None
 }
 
+/// Whether to inject `--no-merges` into a compact `git log`.
+///
+/// Skip injection when the user already expressed a merge preference
+/// (`--merges`, `--min-parents=2`, `--no-merges`) or passed an exact
+/// `-n N` / `--max-count` limit. An explicit count may target a merge commit
+/// directly; filtering merges would return the wrong SHA (issue rtk-ai/rtk#2009).
+fn should_inject_no_merges(args: &[String], has_limit_flag: bool) -> bool {
+    let user_merge_pref = args
+        .iter()
+        .any(|arg| arg == "--merges" || arg == "--min-parents=2" || arg == "--no-merges");
+    !user_merge_pref && !has_limit_flag
+}
+
 fn run_log(
     args: &[String],
     _max_lines: Option<usize>,
@@ -480,11 +518,7 @@ fn run_log(
         10
     };
 
-    // Only add --no-merges if user didn't explicitly request merge commits
-    let wants_merges = args
-        .iter()
-        .any(|arg| arg == "--merges" || arg == "--min-parents=2");
-    if !wants_merges {
+    if should_inject_no_merges(args, has_limit_flag) {
         cmd.arg("--no-merges");
     }
 
@@ -1319,6 +1353,12 @@ fn run_stash(
                 .args(["stash", "list"])
                 .output()
                 .context("Failed to run git stash list")?;
+            // Propagate git failure instead of masking it as "No stashes" (exit 0).
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprint!("{}", stderr);
+                std::process::exit(output.status.code().unwrap_or(1));
+            }
             let stdout = String::from_utf8_lossy(&output.stdout);
             let raw = stdout.to_string();
 
@@ -1340,6 +1380,12 @@ fn run_stash(
                 cmd.arg(arg);
             }
             let output = cmd.output().context("Failed to run git stash show")?;
+            // Propagate git failure instead of masking it as "Empty stash" (exit 0).
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                eprint!("{}", stderr);
+                std::process::exit(output.status.code().unwrap_or(1));
+            }
             let stdout = String::from_utf8_lossy(&output.stdout);
             let raw = stdout.to_string();
 
@@ -1508,6 +1554,13 @@ fn run_worktree(args: &[String], verbose: u8, opts: &GitGlobalOpts) -> Result<()
         .args(["worktree", "list"])
         .output()
         .context("Failed to run git worktree list")?;
+
+    // Propagate git failure instead of emitting empty output with exit 0.
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprint!("{}", stderr);
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let raw = stdout.to_string();
@@ -2209,10 +2262,17 @@ no changes added to commit (use "git add" and/or "git commit -a")
         );
     }
 
+    // Tests use normalize_diff_args_impl with a mock existence checker so they
+    // don't depend on the real filesystem.
+    fn exists_mock<'a>(existing: &'a [&'a str]) -> impl Fn(&str) -> bool + 'a {
+        move |p| existing.contains(&p)
+    }
+
     #[test]
     fn test_normalize_diff_args_reinserts_separator() {
+        // A path with `/` that exists on disk gets `--` re-inserted (issue #1215).
         let args = vec!["src/foo.rs".to_string()];
-        let normalized = normalize_diff_args(&args);
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&["src/foo.rs"]));
         assert_eq!(normalized, vec!["--", "src/foo.rs"]);
     }
 
@@ -2223,28 +2283,99 @@ no changes added to commit (use "git add" and/or "git commit -a")
             "--".to_string(),
             "src/foo.rs".to_string(),
         ];
-        let normalized = normalize_diff_args(&args);
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&[]));
         assert_eq!(normalized, vec!["HEAD", "--", "src/foo.rs"]);
     }
 
     #[test]
     fn test_normalize_diff_args_leaves_revisions_alone() {
         let args = vec!["HEAD~1".to_string(), "HEAD".to_string()];
-        let normalized = normalize_diff_args(&args);
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&[]));
         assert_eq!(normalized, vec!["HEAD~1", "HEAD"]);
     }
 
     #[test]
     fn test_normalize_diff_args_detects_relative_path() {
+        // Explicit `.` prefix is always a path, no filesystem check needed.
         let args = vec!["./src/foo.rs".to_string()];
-        let normalized = normalize_diff_args(&args);
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&[]));
         assert_eq!(normalized, vec!["--", "./src/foo.rs"]);
     }
 
     #[test]
     fn test_normalize_diff_args_revision_then_path() {
         let args = vec!["HEAD".to_string(), "src/foo.rs".to_string()];
-        let normalized = normalize_diff_args(&args);
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&["src/foo.rs"]));
         assert_eq!(normalized, vec!["HEAD", "--", "src/foo.rs"]);
+    }
+
+    // ----- should_inject_no_merges (issue rtk-ai/rtk#2009) -----
+
+    #[test]
+    fn test_should_inject_no_merges_default() {
+        // Plain compact log with no flags: inject --no-merges for token savings.
+        assert!(should_inject_no_merges(&[], false));
+    }
+
+    #[test]
+    fn test_should_inject_no_merges_explicit_merges() {
+        let args = vec!["--merges".to_string()];
+        assert!(!should_inject_no_merges(&args, false));
+    }
+
+    #[test]
+    fn test_should_inject_no_merges_user_passed_no_merges() {
+        // Already passed --no-merges: don't double-inject.
+        let args = vec!["--no-merges".to_string()];
+        assert!(!should_inject_no_merges(&args, false));
+    }
+
+    #[test]
+    fn test_should_inject_no_merges_explicit_limit_skips() {
+        // The merge-SHA bug: `git log -n 1 <merge-sha>` must NOT drop merges.
+        let args = vec!["-n".to_string(), "1".to_string(), "abc123".to_string()];
+        assert!(!should_inject_no_merges(&args, true));
+    }
+
+    #[test]
+    fn test_should_inject_no_merges_short_limit_skips() {
+        let args = vec!["-1".to_string()];
+        assert!(!should_inject_no_merges(&args, true));
+    }
+
+    // ----- branch-name regression (issue #1431) -----
+
+    #[test]
+    fn test_normalize_diff_args_branch_with_slash_not_pathspec() {
+        // `feature/auth` is a branch (not on disk) — must NOT get `--` injected,
+        // otherwise git treats it as a pathspec and emits empty output.
+        let args = vec!["feature/auth".to_string()];
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&[]));
+        assert_eq!(normalized, vec!["feature/auth"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_branch_range_with_slash() {
+        // `main...feature/auth` range — neither side is a path.
+        let args = vec!["main...feature/auth".to_string()];
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&[]));
+        assert_eq!(normalized, vec!["main...feature/auth"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_two_branches_with_slash() {
+        // Comparing two branches: `git diff main feature/x` must stay untouched.
+        let args = vec!["main".to_string(), "feature/x".to_string()];
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&[]));
+        assert_eq!(normalized, vec!["main", "feature/x"]);
+    }
+
+    #[test]
+    fn test_normalize_diff_args_bare_word_existing_file_not_path() {
+        // A bare word with no separator is never a path, even if a same-named
+        // file exists on disk (it is far more likely a ref/branch).
+        let args = vec!["main".to_string()];
+        let normalized = normalize_diff_args_impl(&args, exists_mock(&["main"]));
+        assert_eq!(normalized, vec!["main"]);
     }
 }
