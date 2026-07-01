@@ -5,6 +5,22 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0](https://github.com/maxkulish/rtk/compare/v0.27.0...v0.28.0) (2026-07-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* **grep:** `rtk grep` now executes grep instead of ripgrep, so it is no longer gitignore-aware and uses BRE regex. Use `rtk rg` for ripgrep behavior.
+
+### Features
+
+* **grep:** run the invoked engine and add rtk rg ([9221aa2](https://github.com/maxkulish/rtk/commit/9221aa2a7272be32577e8e13bb4b9b7baef14e93))
+
+
+### Bug Fixes
+
+* **exec:** forward piped stdin to wrapped commands ([abbff3e](https://github.com/maxkulish/rtk/commit/abbff3ec08b117707b1dc08e1272a1d8382b553b))
+
 ## [0.27.0](https://github.com/maxkulish/rtk/compare/v0.26.0...v0.27.0) (2026-06-30)
 
 
