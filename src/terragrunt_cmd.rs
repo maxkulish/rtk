@@ -213,11 +213,21 @@ pub(crate) fn filter_terragrunt_output(output: &str) -> String {
         return String::new();
     }
 
-    // Deduplicate while preserving order. Terragrunt prints the terraform error
-    // box once as STDERR and again in its own `error occurred:` footer; after
-    // prefix-stripping those collapse to identical lines.
+    // Deduplicate ONLY error/warning/box lines: Terragrunt prints the terraform
+    // error box once as STDERR and again in its own `error occurred:` footer, and
+    // those collapse to identical lines after prefix-stripping. Plan body lines are
+    // left alone - different resources can legitimately share an identical change
+    // (e.g. the same `~ instance_type = "t3.micro" -> "t3.small"` across a fleet),
+    // and deduping those would drop real changes.
     let mut seen = std::collections::HashSet::new();
-    kept.retain(|line| seen.insert(line.clone()));
+    kept.retain(|line| {
+        let t = line.trim();
+        if is_box_line(t) || t.starts_with("Error:") || t.starts_with("Warning:") {
+            seen.insert(line.clone())
+        } else {
+            true
+        }
+    });
 
     kept.join("\n")
 }
@@ -543,6 +553,39 @@ time=2024-01-15T10:30:05Z level=error msg=terraform: something went wrong prefix
         assert!(
             result.contains("something went wrong"),
             "legacy error should be kept:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_identical_changes_across_resources_preserved() {
+        // Two resources with the *same* in-place change must both survive: dedup
+        // is restricted to error/box lines, not plan body. (Gemini review, PR #13.)
+        let input = "\
+11:00:00.000 STDOUT terraform:   # aws_instance.web will be updated in-place
+11:00:00.000 STDOUT terraform:       ~ instance_type = \"t3.micro\" -> \"t3.small\"
+11:00:00.000 STDOUT terraform:   # aws_instance.api will be updated in-place
+11:00:00.000 STDOUT terraform:       ~ instance_type = \"t3.micro\" -> \"t3.small\"
+11:00:00.000 STDOUT terraform: Plan: 0 to add, 2 to change, 0 to destroy.
+";
+        let result = filter_terragrunt_output(input);
+        assert!(result.contains("# aws_instance.web will be updated in-place"));
+        assert!(result.contains("# aws_instance.api will be updated in-place"));
+        assert_eq!(
+            result.matches("~ instance_type").count(),
+            2,
+            "both resources' identical changes must be preserved, got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_error_box_deduplicated_to_single_copy() {
+        // The error box is printed twice (STDERR + terragrunt footer); it must
+        // collapse to one copy.
+        let result = filter_terragrunt_output(TG_ERROR_REAL);
+        assert_eq!(
+            result.matches("Error: Call to unknown function").count(),
+            1,
+            "duplicated error box should be deduped to one, got:\n{result}"
         );
     }
 
