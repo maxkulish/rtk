@@ -1510,4 +1510,4 @@ When implementing a new command, consider:
 
 **Last Updated**: 2026-03-02
 **Architecture Version**: 2.2
-**rtk Version**: 0.27.0 <!-- x-release-please-version -->
+**rtk Version**: 0.28.0 <!-- x-release-please-version -->
