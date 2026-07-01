@@ -5,6 +5,26 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0](https://github.com/maxkulish/rtk/compare/v0.29.0...v0.30.0) (2026-07-01)
+
+
+### Features
+
+* **discover:** close git/kubectl/glab detection gaps ([fa09b72](https://github.com/maxkulish/rtk/commit/fa09b72eccfc69e6b5e0343eb61999611e2e40a7))
+* terragrunt filter + close discover git/kubectl/glab gaps ([5d9eb9c](https://github.com/maxkulish/rtk/commit/5d9eb9ccb34c2ff147581156d5e7fff51fcc8992))
+* **terragrunt:** add rtk terragrunt filter and route kubectl global flags ([92791c3](https://github.com/maxkulish/rtk/commit/92791c32102e4929e0c5d2bb52ff36d3cffe7f2e))
+
+
+### Bug Fixes
+
+* **kubectl:** surface get/services errors instead of masking as empty ([6cbb390](https://github.com/maxkulish/rtk/commit/6cbb39002758f6b8f1b6d04794147426183ed585))
+* **terragrunt:** only dedupe error/box lines, not plan body ([9470998](https://github.com/maxkulish/rtk/commit/9470998fa709f72df508fcc7013b1cf616986e2a))
+
+
+### Miscellaneous Chores
+
+* release 0.30.0 ([d36b891](https://github.com/maxkulish/rtk/commit/d36b891c42f0e60fd9633de22db889d02f728129))
+
 ## [0.29.0](https://github.com/maxkulish/rtk/compare/v0.28.0...v0.29.0) (2026-07-01)
 
 
