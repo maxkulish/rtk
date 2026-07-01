@@ -251,7 +251,7 @@ pub fn run_other(args: &[OsString], verbose: u8) -> Result<()> {
 }
 
 /// Parse go test -json output (NDJSON format)
-fn filter_go_test_json(output: &str) -> String {
+pub fn filter_go_test_json(output: &str) -> String {
     let mut packages: HashMap<String, PackageResult> = HashMap::new();
     let mut current_test_output: HashMap<(String, String), Vec<String>> = HashMap::new(); // (package, test) -> outputs
 

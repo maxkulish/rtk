@@ -97,7 +97,7 @@ fn which_command(cmd: &str) -> Option<String> {
 }
 
 /// Parse pytest output using state machine
-fn filter_pytest_output(output: &str) -> String {
+pub fn filter_pytest_output(output: &str) -> String {
     let mut state = ParseState::Header;
     let mut test_files: Vec<String> = Vec::new();
     let mut failures: Vec<String> = Vec::new();

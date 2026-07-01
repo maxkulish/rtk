@@ -67,7 +67,8 @@ rtk read file.rs                # Smart file reading
 rtk read file.rs -l aggressive  # Signatures only (strips bodies)
 rtk smart file.rs               # 2-line heuristic code summary
 rtk find "*.rs" .               # Compact find results
-rtk grep "pattern" .            # Grouped search results
+rtk grep "pattern" .            # Grouped search results (runs grep)
+rtk rg "pattern" .              # Grouped search results (runs ripgrep)
 ```
 
 ### Git
@@ -90,6 +91,7 @@ rtk pytest                      # Pytest failures only (-90%)
 rtk go test                     # Go test NDJSON parser (-90%)
 rtk go build                    # Build errors only (-80%)
 rtk go vet                      # Vet issues (-75%)
+rtk mvn test                    # Maven failures + build status (-65-90%)
 ```
 
 ### Linting & Formatting
@@ -144,12 +146,21 @@ rtk gh issue list               # Compact issue listing
 rtk gh run list                 # Workflow run status
 ```
 
+### GitLab CLI
+```bash
+rtk glab mr list                # Compact MR listing
+rtk glab mr view 42             # MR details + pipeline status
+rtk glab ci status              # Pipeline/job status
+rtk glab issue list             # Compact issue listing
+```
+
 ### Other
 ```bash
 rtk log app.log                 # Deduplicated logs with counts
 rtk summary <long command>      # Heuristic summary
 rtk wget https://example.com   # Download, strip progress bars
 rtk proxy <any command>         # Passthrough with usage tracking
+cargo test 2>&1 | rtk pipe cargo-test  # Filter piped output (pytest, tsc, ...)
 rtk config                      # Show config (--create to generate)
 ```
 

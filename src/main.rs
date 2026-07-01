@@ -16,6 +16,7 @@ mod format_cmd;
 mod gain;
 mod gh_cmd;
 mod git;
+mod glab_cmd;
 mod go_cmd;
 mod golangci_cmd;
 mod grep_cmd;
@@ -29,11 +30,13 @@ mod lint_cmd;
 mod local_llm;
 mod log_cmd;
 mod ls;
+mod mvn_cmd;
 mod mypy_cmd;
 mod next_cmd;
 mod npm_cmd;
 mod parser;
 mod pip_cmd;
+mod pipe_cmd;
 mod playwright_cmd;
 mod pnpm_cmd;
 mod prettier_cmd;
@@ -305,6 +308,28 @@ enum Commands {
         /// Extra ripgrep arguments (e.g., -i, -A 3, -w, --glob)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         extra_args: Vec<String>,
+    },
+
+    /// Filter piped stdin through a named RTK filter (for shell pipe chaining)
+    Pipe {
+        /// Filter name: cargo-test, pytest, tsc, go-test, mypy, ruff-check, ruff-format, log
+        filter: String,
+    },
+
+    /// Compact GitLab CLI (glab) - MR/CI/issue views without bloat
+    Glab {
+        /// Subcommand: mr, ci, issue
+        subcommand: String,
+        /// Additional arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Compact Maven (mvn) - failures and build status only
+    Mvn {
+        /// Maven arguments (e.g. test, install, -pl module)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 
     /// Initialize rtk instructions in CLAUDE.md
@@ -1347,6 +1372,18 @@ fn main() -> Result<()> {
                 &extra_args,
                 cli.verbose,
             )?;
+        }
+
+        Commands::Pipe { filter } => {
+            pipe_cmd::run(&filter, cli.verbose)?;
+        }
+
+        Commands::Glab { subcommand, args } => {
+            glab_cmd::run(&subcommand, &args, cli.verbose, cli.ultra_compact)?;
+        }
+
+        Commands::Mvn { args } => {
+            mvn_cmd::run(&args, cli.verbose)?;
         }
 
         Commands::Init {

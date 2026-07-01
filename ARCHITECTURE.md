@@ -240,8 +240,9 @@ GIT               git.rs            status, diff, log      85-99%     ✓
                   gt_cmd.rs         gt (git-temporal)      60%+       ✓
 
 BUILD             cargo_cmd.rs      cargo build/test/etc   60%+       ✓
+                  mvn_cmd.rs        mvn (fixture-tested)   65-90%     ✓
 
-CODE SEARCH       grep_cmd.rs       grep                   60-80%     ✓
+CODE SEARCH       grep_cmd.rs       grep, rg               60-80%     ✓
                   diff_cmd.rs       diff                   70-85%     ✓
                   find_cmd.rs       find                   50-70%     ✓
 
@@ -253,6 +254,7 @@ FILE OPS          ls.rs             ls                     50-70%     ✓
 EXECUTION         runner.rs         err, test              60-99%     ✓
                   summary.rs        smart (heuristic)      50-80%     ✓
                   local_llm.rs      smart (LLM mode)       60-90%     ✓
+                  pipe_cmd.rs       pipe (stdin router)    60-99%     ✓
 
 LOGS/DATA         log_cmd.rs        log                    70-90%     ✓
                   json_cmd.rs       json                   80-95%     ✓
@@ -272,6 +274,7 @@ FORMATTERS        format_cmd.rs     format (auto-detect)   70%+       ✓
 CONTAINERS        container.rs      podman, docker         60-80%     ✓
 
 VCS               gh_cmd.rs         gh                     26-87%     ✓
+                  glab_cmd.rs       glab                   67-86%     ✓
 
 PYTHON            ruff_cmd.rs       ruff check/format      80%+       ✓
                   pytest_cmd.rs     pytest                 90%+       ✓
@@ -313,11 +316,11 @@ ANALYTICS         cc_economics.rs   Spending vs savings    N/A        ✓
                   learn/            CLI correction detect  N/A        ✓
 ```
 
-**Total: 56 modules** (37 command modules + 19 infrastructure modules)
+**Total: 59 modules** (40 command modules + 19 infrastructure modules)
 
 ### Module Count Breakdown
 
-- **Command Modules**: 37 (directly exposed to users)
+- **Command Modules**: 40 (directly exposed to users)
 - **Infrastructure Modules**: 19 (utils, filter, tracking, tee, config, parser, toml_filter, guard, etc.)
 - **Git Commands**: 7 operations + gt (status, diff, log, add, commit, push, branch/checkout)
 - **JS/TS Tooling**: 9 modules (modern frontend/fullstack development)
