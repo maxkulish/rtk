@@ -210,6 +210,15 @@ fn kubectl_pods(args: &[String], _verbose: u8) -> Result<()> {
     }
 
     let output = cmd.output().context("Failed to run kubectl get pods")?;
+    // Surface real failures (bad context, RBAC, unreachable cluster) instead of
+    // masking them as "No pods found": empty stdout would otherwise parse-fail.
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprint!("{}", stderr);
+        let raw = format!("{}{}", String::from_utf8_lossy(&output.stdout), stderr);
+        timer.track("kubectl get pods", "rtk kubectl pods", &raw, &stderr);
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
     let raw = String::from_utf8_lossy(&output.stdout).to_string();
     let mut rtk = String::new();
 
@@ -308,6 +317,19 @@ fn kubectl_services(args: &[String], _verbose: u8) -> Result<()> {
     }
 
     let output = cmd.output().context("Failed to run kubectl get services")?;
+    // Surface real failures instead of masking them as "No services found".
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        eprint!("{}", stderr);
+        let raw = format!("{}{}", String::from_utf8_lossy(&output.stdout), stderr);
+        timer.track(
+            "kubectl get services",
+            "rtk kubectl services",
+            &raw,
+            &stderr,
+        );
+        std::process::exit(output.status.code().unwrap_or(1));
+    }
     let raw = String::from_utf8_lossy(&output.stdout).to_string();
     let mut rtk = String::new();
 
