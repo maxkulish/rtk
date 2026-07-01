@@ -49,6 +49,7 @@ mod ruff_cmd;
 mod runner;
 mod summary;
 mod tee;
+mod terragrunt_cmd;
 mod toml_filter;
 mod tracking;
 mod tree;
@@ -328,6 +329,13 @@ enum Commands {
     /// Compact Maven (mvn) - failures and build status only
     Mvn {
         /// Maven arguments (e.g. test, install, -pl module)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+
+    /// Compact Terragrunt/Terraform - plan/apply summaries and errors only
+    Terragrunt {
+        /// Terragrunt arguments (e.g. plan, apply, --auto-approve)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -1072,7 +1080,11 @@ fn main() -> Result<()> {
         return run_fallback(&raw_args[1..]);
     }
 
-    let cli = match Cli::try_parse() {
+    // Reorder `rtk kubectl <global flags> <subcommand>` so clap can parse it and
+    // route through the filter instead of falling back to raw. No-op otherwise.
+    let parse_args = normalize_kubectl_argv(&raw_args);
+
+    let cli = match Cli::try_parse_from(&parse_args) {
         Ok(cli) => cli,
         Err(e) => {
             if should_fallback(&e, &raw_args) {
@@ -1384,6 +1396,10 @@ fn main() -> Result<()> {
 
         Commands::Mvn { args } => {
             mvn_cmd::run(&args, cli.verbose)?;
+        }
+
+        Commands::Terragrunt { args } => {
+            terragrunt_cmd::run(&args, cli.verbose)?;
         }
 
         Commands::Init {
@@ -1948,6 +1964,95 @@ fn strip_rtk_flags(args: &[OsString]) -> &[OsString] {
     &args[start..]
 }
 
+/// kubectl global flags that consume a following value (or use `--flag=value`).
+const KUBECTL_VALUE_FLAGS: &[&str] = &[
+    "--context",
+    "-n",
+    "--namespace",
+    "--kubeconfig",
+    "--cluster",
+    "--user",
+    "--as",
+    "--as-group",
+    "-s",
+    "--server",
+    "--token",
+    "--request-timeout",
+    "--certificate-authority",
+    "--client-certificate",
+    "--client-key",
+    "--tls-server-name",
+    "--cache-dir",
+];
+
+/// kubectl boolean global flags (no value).
+const KUBECTL_BOOL_FLAGS: &[&str] = &["--insecure-skip-tls-verify"];
+
+/// Split the tokens after `kubectl` into (leading global flags, remainder).
+///
+/// Scans only while it recognizes kubectl global flags; the first token that is a
+/// subcommand (or an unknown flag) ends the split. Conservative by design: unknown
+/// input is left in `remainder`, so a still-unparseable command simply falls back
+/// to raw execution as before.
+fn split_kubectl_leading_globals(kargs: &[OsString]) -> (Vec<OsString>, Vec<OsString>) {
+    let mut globals: Vec<OsString> = Vec::new();
+    let mut i = 0;
+    while i < kargs.len() {
+        let s = kargs[i].to_string_lossy();
+        if let Some(eq) = s.find('=') {
+            if KUBECTL_VALUE_FLAGS.contains(&&s[..eq]) {
+                globals.push(kargs[i].clone());
+                i += 1;
+                continue;
+            }
+            break;
+        }
+        if KUBECTL_VALUE_FLAGS.contains(&s.as_ref()) {
+            globals.push(kargs[i].clone());
+            if i + 1 < kargs.len() {
+                globals.push(kargs[i + 1].clone());
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+        if KUBECTL_BOOL_FLAGS.contains(&s.as_ref()) {
+            globals.push(kargs[i].clone());
+            i += 1;
+            continue;
+        }
+        break;
+    }
+    (globals, kargs[i..].to_vec())
+}
+
+/// Reorder kubectl global flags that appear *before* the subcommand to the end, so
+/// clap can bind the subcommand positionally instead of erroring and falling back
+/// to raw (unfiltered) execution. kubectl accepts global flags in any position, so
+/// this is behavior-preserving for the underlying command. Only `rtk kubectl ...`
+/// is touched; everything else is returned unchanged.
+fn normalize_kubectl_argv(raw: &[OsString]) -> Vec<OsString> {
+    if raw.len() < 2 {
+        return raw.to_vec();
+    }
+    let after_flags = strip_rtk_flags(&raw[1..]);
+    let prefix_len = raw.len() - after_flags.len();
+    if after_flags.is_empty() || after_flags[0].to_string_lossy() != "kubectl" {
+        return raw.to_vec();
+    }
+    let (globals, rest) = split_kubectl_leading_globals(&after_flags[1..]);
+    if globals.is_empty() {
+        return raw.to_vec();
+    }
+    let mut out: Vec<OsString> = Vec::with_capacity(raw.len());
+    out.extend_from_slice(&raw[..prefix_len]);
+    out.push(OsString::from("kubectl"));
+    out.extend(rest);
+    out.extend(globals);
+    out
+}
+
 fn run_fallback(args: &[OsString]) -> Result<()> {
     let args = strip_rtk_flags(args);
     if args.is_empty() {
@@ -2430,6 +2535,61 @@ mod tests {
         let args: Vec<OsString> = ["-x", "cmd"].iter().map(OsString::from).collect();
         let stripped = strip_rtk_flags(&args);
         assert_eq!(stripped, &args[..]);
+    }
+
+    fn osv(items: &[&str]) -> Vec<OsString> {
+        items.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn test_normalize_kubectl_argv_reorders_leading_globals() {
+        // `rtk kubectl --context x -n y get pods` -> subcommand first, globals last.
+        let raw = osv(&["rtk", "kubectl", "--context", "x", "-n", "y", "get", "pods"]);
+        let got = normalize_kubectl_argv(&raw);
+        assert_eq!(
+            got,
+            osv(&["rtk", "kubectl", "get", "pods", "--context", "x", "-n", "y"])
+        );
+    }
+
+    #[test]
+    fn test_normalize_kubectl_argv_eq_form() {
+        let raw = osv(&["rtk", "kubectl", "--context=prod", "get", "deploy"]);
+        let got = normalize_kubectl_argv(&raw);
+        assert_eq!(
+            got,
+            osv(&["rtk", "kubectl", "get", "deploy", "--context=prod"])
+        );
+    }
+
+    #[test]
+    fn test_normalize_kubectl_argv_noop_without_leading_globals() {
+        let raw = osv(&["rtk", "kubectl", "get", "pods", "-n", "kube-system"]);
+        assert_eq!(normalize_kubectl_argv(&raw), raw);
+    }
+
+    #[test]
+    fn test_normalize_kubectl_argv_ignores_non_kubectl() {
+        let raw = osv(&["rtk", "git", "-C", "/tmp", "status"]);
+        assert_eq!(normalize_kubectl_argv(&raw), raw);
+    }
+
+    #[test]
+    fn test_normalize_kubectl_argv_preserves_rtk_flags() {
+        let raw = osv(&["rtk", "-v", "kubectl", "--context", "x", "get", "svc"]);
+        let got = normalize_kubectl_argv(&raw);
+        assert_eq!(
+            got,
+            osv(&["rtk", "-v", "kubectl", "get", "svc", "--context", "x"])
+        );
+    }
+
+    #[test]
+    fn test_split_kubectl_leading_globals_stops_at_subcommand() {
+        let (globals, rest) =
+            split_kubectl_leading_globals(&osv(&["--insecure-skip-tls-verify", "get", "pods"]));
+        assert_eq!(globals, osv(&["--insecure-skip-tls-verify"]));
+        assert_eq!(rest, osv(&["get", "pods"]));
     }
 
     #[test]

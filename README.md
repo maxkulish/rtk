@@ -136,6 +136,13 @@ rtk docker logs <container>     # Deduplicated logs
 rtk kubectl pods                # Compact pod list
 rtk kubectl logs <pod>          # Deduplicated logs
 rtk kubectl services            # Compact service list
+rtk kubectl --context c get pods  # Global flags before the subcommand work too
+```
+
+### Infrastructure as Code
+```bash
+rtk terragrunt plan             # Resource changes + Plan summary only (-85%)
+rtk terragrunt apply            # Apply summary + outputs, progress stripped (-80%+)
 ```
 
 ### GitHub CLI

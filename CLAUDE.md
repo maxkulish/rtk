@@ -231,6 +231,7 @@ rtk gain --history | grep proxy
 | golangci_cmd.rs | golangci-lint | JSON parsing, group by rule (85% reduction) |
 | glab_cmd.rs | GitLab CLI | Compact MR/CI/issue views (67-86% reduction) |
 | mvn_cmd.rs | Apache Maven | Failures + build status only, fixture-tested (65-90% reduction) |
+| terragrunt_cmd.rs | Terragrunt/Terraform/OpenTofu | Strip ANSI + log prefix, keep plan/apply summary + errors (80-92% reduction) |
 | pipe_cmd.rs | Stdin filter router | Route piped output to a named filter (cargo-test, pytest, tsc, etc.) |
 | guard.rs | Never-worse guard | Fall back to raw when filtered output is larger |
 | tee.rs | Full output recovery | Save raw output to file on failure, print hint for LLM re-read |

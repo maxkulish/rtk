@@ -285,6 +285,7 @@ GO                go_cmd.rs         go test/build/vet      75-90%     ✓
                   golangci_cmd.rs   golangci-lint          85%        ✓
 
 CLOUD             aws_cmd.rs        aws CLI                60%+       ✓
+                  terragrunt_cmd.rs terragrunt/terraform   80-92%     ✓
 
 NETWORK           curl_cmd.rs       curl                   60%+       ✓
                   wget_cmd.rs       wget                   85-95%     ✓
@@ -316,17 +317,17 @@ ANALYTICS         cc_economics.rs   Spending vs savings    N/A        ✓
                   learn/            CLI correction detect  N/A        ✓
 ```
 
-**Total: 59 modules** (40 command modules + 19 infrastructure modules)
+**Total: 60 modules** (41 command modules + 19 infrastructure modules)
 
 ### Module Count Breakdown
 
-- **Command Modules**: 40 (directly exposed to users)
+- **Command Modules**: 41 (directly exposed to users)
 - **Infrastructure Modules**: 19 (utils, filter, tracking, tee, config, parser, toml_filter, guard, etc.)
 - **Git Commands**: 7 operations + gt (status, diff, log, add, commit, push, branch/checkout)
 - **JS/TS Tooling**: 9 modules (modern frontend/fullstack development)
 - **Python Tooling**: 4 modules (ruff, pytest, pip, mypy)
 - **Go Tooling**: 2 modules (go test/build/vet, golangci-lint)
-- **Cloud/Network**: 3 modules (aws, curl, wget)
+- **Cloud/Network**: 4 modules (aws, terragrunt, curl, wget)
 - **Analytics**: 4 modules (cc_economics, ccusage, discover, learn)
 
 ---
