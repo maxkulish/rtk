@@ -5,6 +5,13 @@ All notable changes to rtk (Rust Token Killer) will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0](https://github.com/maxkulish/rtk/compare/v0.28.0...v0.29.0) (2026-07-01)
+
+
+### Features
+
+* **cli:** add rtk pipe, glab, and mvn commands ([9df2fd4](https://github.com/maxkulish/rtk/commit/9df2fd43951d6472120a6fc73738d46ab0b97502))
+
 ## [0.28.0](https://github.com/maxkulish/rtk/compare/v0.27.0...v0.28.0) (2026-07-01)
 
 

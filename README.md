@@ -41,7 +41,7 @@ brew install maxkulish/tap/rtk
 
 Verify:
 ```bash
-rtk --version  # Should show "rtk 0.28.0" <!-- x-release-please-version -->
+rtk --version  # Should show "rtk 0.29.0" <!-- x-release-please-version -->
 rtk gain       # Should show token savings stats
 ```
 
