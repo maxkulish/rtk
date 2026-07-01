@@ -1,0 +1,39 @@
+[90m11:25:57.074[m [32mINFO  [m Downloading Terraform configurations from /private/tmp/claude-501/-Users-mk-Code-rtk/1f539f24-349e-493c-932c-c2fb42533ddd/scratchpad/tg into ./.terragrunt-cache/St1sdYRieiO-4wKLmrIje2wjJJU/0eDauxA816YBX23WQ3-w87nbwN8
+[90m11:25:57.101[m [32mINFO  [m [36mterraform: [m[0m[1mInitializing provider plugins found in the configuration...[0m[0m
+[90m11:25:57.101[m [32mINFO  [m [36mterraform: [m- Reusing previous version of hashicorp/null from the dependency lock file
+[90m11:25:57.150[m [32mINFO  [m [36mterraform: [m- Using previously-installed hashicorp/null v3.3.0
+[90m11:25:57.150[m [32mINFO  [m [36mterraform: [m[0m[1mInitializing the backend...[0m[0m
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [m[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m[0m
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [m[0m[32m[0m
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [mYou may now begin working with Terraform. Try running "terraform plan" to see
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [many changes that are required for your infrastructure. All Terraform commands
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [mshould now work.
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [mIf you ever set or change modules or backend configuration for Terraform,
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [mrerun this command to reinitialize your working directory. If you forget, other
+[90m11:25:57.159[m [32mINFO  [m [36mterraform: [mcommands will detect it and remind you to do so if necessary.[0m[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [mTerraform used the selected providers to generate the following execution
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [mplan. Resource actions are indicated with the following symbols:
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m  [32m+[0m create[0m[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [mTerraform will perform the following actions:
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m[1m  # null_resource.example[0m will be created[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m[0m  [32m+[0m[0m resource "null_resource" "example" {[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m      [32m+[0m[0m id       = (known after apply)[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m      [32m+[0m[0m triggers = {[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m          [32m+[0m[0m "baz" = "qux"[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m          [32m+[0m[0m "foo" = "bar"[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m        }
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m    }
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m[1m  # null_resource.second[0m will be created[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m[0m  [32m+[0m[0m resource "null_resource" "second" {[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m      [32m+[0m[0m id       = (known after apply)[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m      [32m+[0m[0m triggers = {[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m          [32m+[0m[0m "alpha" = "one"[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m        }
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m    }
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m[1mPlan:[0m [0m2 to add, 0 to change, 0 to destroy.[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [mChanges to Outputs:
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m  [32m+[0m[0m example_id = (known after apply)[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m[90m[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [m─────────────────────────────────────────────────────────────────────────────[0m[0m
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [mNote: You didn't use the -out option to save this plan, so Terraform can't
+[90m11:25:57.495[m [37mSTDOUT[m [36mterraform: [mguarantee to take exactly these actions if you run "terraform apply" now.

@@ -72,6 +72,12 @@ const PATTERNS: &[&str] = &[
     r"^curl\s+",
     r"^wget\s+",
     r"^terragrunt\s+(plan|apply|init|output|validate|state)",
+    // git subcommands RTK forwards via passthrough (no dedicated filter, 0% savings)
+    r"^git\s+(checkout|switch|restore|rebase|merge|reset|tag|clone|cherry-pick|revert|rm|mv|remote|config|describe|blame|apply|clean|rev-parse|reflog|ls-files|init|bisect|submodule)",
+    // kubectl subcommands RTK forwards via passthrough (get/logs have filters above)
+    r"^kubectl\s+(describe|apply|delete|rollout|scale|config|top|patch|expose|create|cordon|drain|explain|version|api-resources|cluster-info|label|annotate|wait|auth)",
+    // glab: mr/ci/issue have compact filters, other subcommands pass through
+    r"^glab\s+(mr|ci|issue|api|release|repo|pipeline|auth|variable|cluster)",
 ];
 
 const RULES: &[RtkRule] = &[
@@ -241,6 +247,32 @@ const RULES: &[RtkRule] = &[
         subcmd_savings: &[("plan", 85.0), ("apply", 85.0)],
         subcmd_status: &[("state", super::report::RtkStatus::Passthrough)],
     },
+    // git passthrough subcommands: 0% savings -> Passthrough status. Classified so
+    // they leave the "unhandled" list and get rewritten/tracked as `rtk git`.
+    RtkRule {
+        rtk_cmd: "rtk git",
+        category: "Git",
+        savings_pct: 0.0,
+        subcmd_savings: &[],
+        subcmd_status: &[],
+    },
+    // kubectl passthrough subcommands: 0% savings -> Passthrough status.
+    RtkRule {
+        rtk_cmd: "rtk kubectl",
+        category: "Infra",
+        savings_pct: 0.0,
+        subcmd_savings: &[],
+        subcmd_status: &[],
+    },
+    // glab: mr/ci/issue have compact filters (Existing); other subcommands pass
+    // through (0% -> Passthrough via the default-status heuristic).
+    RtkRule {
+        rtk_cmd: "rtk glab",
+        category: "GitHub",
+        savings_pct: 0.0,
+        subcmd_savings: &[("mr", 80.0), ("ci", 75.0), ("issue", 80.0)],
+        subcmd_status: &[],
+    },
 ];
 
 /// Commands to ignore (shell builtins, trivial, already rtk).
@@ -310,11 +342,28 @@ lazy_static! {
         .collect();
     static ref ENV_PREFIX: Regex =
         Regex::new(r"^(?:sudo\s+|env\s+|[A-Z_][A-Z0-9_]*=[^\s]*\s+)+").unwrap();
+    // Git global options that appear before the subcommand: -C <path>, -c <key=val>,
+    // --git-dir <dir>, --work-tree <dir>, and flag-only options.
+    // Ported from upstream rtk-ai/rtk (#163: `git -C /tmp status` -> `git status`).
+    static ref GIT_GLOBAL_OPT: Regex = Regex::new(
+        r"^(?:(?:-C\s+\S+|-c\s+\S+|--git-dir(?:=\S+|\s+\S+)|--work-tree(?:=\S+|\s+\S+)|--no-pager|--no-optional-locks|--bare|--literal-pathspecs)\s+)+"
+    ).unwrap();
+    // Kubectl global options that appear before the subcommand: --context, -n/--namespace,
+    // --kubeconfig, --cluster, --user, --as, --server/-s, --token, --request-timeout, and
+    // the boolean --insecure-skip-tls-verify. Net-new (missing in upstream too): normalizes
+    // `kubectl --context x -n y get pods` -> `kubectl get pods` for classification.
+    static ref KUBECTL_GLOBAL_OPT: Regex = Regex::new(
+        r"^(?:(?:--context(?:=\S+|\s+\S+)|(?:-n|--namespace)(?:=\S+|\s+\S+)|--kubeconfig(?:=\S+|\s+\S+)|--cluster(?:=\S+|\s+\S+)|--user(?:=\S+|\s+\S+)|--as(?:=\S+|\s+\S+)|(?:-s|--server)(?:=\S+|\s+\S+)|--token(?:=\S+|\s+\S+)|--request-timeout(?:=\S+|\s+\S+)|--insecure-skip-tls-verify)\s+)+"
+    ).unwrap();
 }
 
 /// Classify a single (already-split) command.
 pub fn classify_command(cmd: &str) -> Classification {
-    let trimmed = cmd.trim();
+    // Unwrap noise wrappers before anything else: a leading `\` line-continuation
+    // artifact and `$(which foo)` / `` `which foo` `` command substitution.
+    let unwrapped = strip_leading_continuation(cmd);
+    let unwrapped = unwrap_command_substitution(&unwrapped);
+    let trimmed = unwrapped.trim();
     if trimmed.is_empty() {
         return Classification::Ignored;
     }
@@ -338,6 +387,15 @@ pub fn classify_command(cmd: &str) -> Classification {
         return Classification::Ignored;
     }
 
+    // Normalize before matching so wrapped invocations still classify:
+    //   /usr/bin/git status         -> git status            (abs path, upstream #485)
+    //   git -C /tmp status          -> git status            (git global opts, upstream #163)
+    //   kubectl --context x get pods-> kubectl get pods      (kubectl global opts, net-new)
+    let cmd_normalized = strip_absolute_path(cmd_clean);
+    let cmd_normalized = strip_git_global_opts(&cmd_normalized);
+    let cmd_normalized = strip_kubectl_global_opts(&cmd_normalized);
+    let cmd_clean = cmd_normalized.as_str();
+
     // Fast check with RegexSet — take the last (most specific) match
     let matches: Vec<usize> = REGEX_SET.matches(cmd_clean).into_iter().collect();
     if let Some(&idx) = matches.last() {
@@ -347,13 +405,6 @@ pub fn classify_command(cmd: &str) -> Classification {
         let (savings, status) = if let Some(caps) = COMPILED[idx].captures(cmd_clean) {
             if let Some(sub) = caps.get(1) {
                 let subcmd = sub.as_str();
-                // Check if this subcommand has a special status
-                let status = rule
-                    .subcmd_status
-                    .iter()
-                    .find(|(s, _)| *s == subcmd)
-                    .map(|(_, st)| *st)
-                    .unwrap_or(super::report::RtkStatus::Existing);
 
                 // Check if this subcommand has custom savings
                 let savings = rule
@@ -363,12 +414,21 @@ pub fn classify_command(cmd: &str) -> Classification {
                     .map(|(_, pct)| *pct)
                     .unwrap_or(rule.savings_pct);
 
+                // An explicit override wins; otherwise a zero-savings subcommand is
+                // one RTK only passes through (no dedicated filter).
+                let status = rule
+                    .subcmd_status
+                    .iter()
+                    .find(|(s, _)| *s == subcmd)
+                    .map(|(_, st)| *st)
+                    .unwrap_or_else(|| default_status_for(savings));
+
                 (savings, status)
             } else {
-                (rule.savings_pct, super::report::RtkStatus::Existing)
+                (rule.savings_pct, default_status_for(rule.savings_pct))
             }
         } else {
-            (rule.savings_pct, super::report::RtkStatus::Existing)
+            (rule.savings_pct, default_status_for(rule.savings_pct))
         };
 
         Classification::Supported {
@@ -388,6 +448,98 @@ pub fn classify_command(cmd: &str) -> Classification {
             }
         }
     }
+}
+
+/// Default RTK status for a subcommand given its estimated savings: a command RTK
+/// only forwards (no dedicated filter) has zero savings and is a passthrough.
+fn default_status_for(savings_pct: f64) -> super::report::RtkStatus {
+    if savings_pct <= 0.0 {
+        super::report::RtkStatus::Passthrough
+    } else {
+        super::report::RtkStatus::Existing
+    }
+}
+
+/// Strip a leading `\` line-continuation artifact (`\<newline>git ...`, `\ git`).
+///
+/// Multi-line commands recorded in Claude Code history sometimes begin with a
+/// stray backslash from shell line continuation. `\ls`/`\command` (alias bypass)
+/// normalize the same way, which is also correct.
+fn strip_leading_continuation(cmd: &str) -> String {
+    let t = cmd.trim_start();
+    match t.strip_prefix('\\') {
+        Some(rest) => rest.trim_start().to_string(),
+        None => cmd.to_string(),
+    }
+}
+
+/// Unwrap `$(which foo) ...` / `` `which foo` ... `` into `foo ...`.
+///
+/// Only the leading command-substitution form is handled (the command itself is
+/// resolved via `which`); substitutions used as arguments are left untouched.
+fn unwrap_command_substitution(cmd: &str) -> String {
+    let c = cmd.trim_start();
+    for (open, close) in [("$(which ", ")"), ("`which ", "`")] {
+        if let Some(rest) = c.strip_prefix(open) {
+            if let Some(close_idx) = rest.find(close) {
+                let name = rest[..close_idx].trim();
+                // `which` yields a path or bare name; keep just the basename.
+                let name = name.rsplit('/').next().unwrap_or(name);
+                let after = &rest[close_idx + close.len()..];
+                if !name.is_empty() {
+                    return format!("{}{}", name, after);
+                }
+            }
+        }
+    }
+    cmd.to_string()
+}
+
+/// Normalize an absolute binary path to its basename: `/usr/bin/grep` -> `grep`.
+///
+/// Ported from upstream rtk-ai/rtk (#485).
+fn strip_absolute_path(cmd: &str) -> String {
+    let first_space = cmd.find(' ');
+    let first_word = match first_space {
+        Some(pos) => &cmd[..pos],
+        None => cmd,
+    };
+    if first_word.contains('/') {
+        let basename = first_word.rsplit('/').next().unwrap_or(first_word);
+        if basename.is_empty() {
+            return cmd.to_string();
+        }
+        match first_space {
+            Some(pos) => format!("{}{}", basename, &cmd[pos..]),
+            None => basename.to_string(),
+        }
+    } else {
+        cmd.to_string()
+    }
+}
+
+/// Strip git global options that appear before the subcommand.
+///
+/// Ported from upstream rtk-ai/rtk (#163): `git -C /tmp status` -> `git status`.
+fn strip_git_global_opts(cmd: &str) -> String {
+    if !cmd.starts_with("git ") {
+        return cmd.to_string();
+    }
+    let after_git = &cmd[4..]; // skip "git "
+    let stripped = GIT_GLOBAL_OPT.replace(after_git, "");
+    format!("git {}", stripped.trim())
+}
+
+/// Strip kubectl global options that appear before the subcommand.
+///
+/// Net-new (missing upstream): `kubectl --context x -n y get pods` -> `kubectl get pods`.
+fn strip_kubectl_global_opts(cmd: &str) -> String {
+    if !cmd.starts_with("kubectl ") {
+        return cmd.to_string();
+    }
+    let after = &cmd["kubectl ".len()..];
+    let stripped = KUBECTL_GLOBAL_OPT.replace(after, "");
+    format!("kubectl {}", stripped.trim())
 }
 
 /// Extract the base command (first word, or first two if it looks like a subcommand pattern).
@@ -456,7 +608,11 @@ fn has_incompatible_cat_flags(cmd: &str) -> bool {
 }
 
 pub fn rewrite_command(cmd: &str, excluded: &[String]) -> Option<String> {
-    let trimmed = cmd.trim();
+    // Unwrap the same noise wrappers classify_command handles, so the rewritten
+    // form is clean: `$(which git) push` -> `rtk git push`, `\ git ...` -> `rtk git ...`.
+    let unwrapped = strip_leading_continuation(cmd);
+    let unwrapped = unwrap_command_substitution(&unwrapped);
+    let trimmed = unwrapped.trim();
     if trimmed.is_empty() {
         return None;
     }
@@ -476,9 +632,13 @@ pub fn rewrite_command(cmd: &str, excluded: &[String]) -> Option<String> {
     // Classify the command
     match classify_command(trimmed) {
         Classification::Supported { rtk_equivalent, .. } => {
-            // Extract the base command to replace
+            // Extract the base command to replace. Normalize an absolute binary
+            // path (`/usr/bin/git` -> `git`) but DELIBERATELY keep git/kubectl
+            // global flags (`-C <path>`, `--context <x>`) so the rewritten command
+            // still targets the right repo/context.
             let stripped = ENV_PREFIX.replace(trimmed, "");
-            let cmd_clean = stripped.trim();
+            let cmd_clean = strip_absolute_path(stripped.trim());
+            let cmd_clean = cmd_clean.as_str();
 
             // Find the command part to replace
             // Simple approach: replace the first word with rtk equivalent
@@ -633,6 +793,197 @@ mod tests {
                 status: RtkStatus::Existing,
             }
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Command normalization (#2): git/kubectl global flags, $(which), abs paths,
+    // leading backslash continuation.
+    // -----------------------------------------------------------------------
+
+    fn rtk_equiv(cmd: &str) -> Option<&'static str> {
+        match classify_command(cmd) {
+            Classification::Supported { rtk_equivalent, .. } => Some(rtk_equivalent),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn test_classify_git_dash_c_path() {
+        // `git -C <path> <subcommand>` must classify as the subcommand (upstream #163).
+        assert_eq!(
+            rtk_equiv("git -C /home/tmoran/ai-root status"),
+            Some("rtk git")
+        );
+        assert_eq!(rtk_equiv("git -C /tmp log --oneline"), Some("rtk git"));
+    }
+
+    #[test]
+    fn test_classify_git_dash_c_config_flag() {
+        assert_eq!(
+            rtk_equiv("git -c user.name=bot commit -m x"),
+            Some("rtk git")
+        );
+    }
+
+    #[test]
+    fn test_classify_absolute_path_git() {
+        // Absolute binary path normalizes to basename (upstream #485).
+        assert_eq!(rtk_equiv("/usr/bin/git status"), Some("rtk git"));
+    }
+
+    #[test]
+    fn test_classify_which_wrapped_git() {
+        // $(which git) push ... resolves to a git push.
+        assert_eq!(
+            rtk_equiv("$(which git) push -u origin HEAD"),
+            Some("rtk git")
+        );
+        assert_eq!(rtk_equiv("`which git` status"), Some("rtk git"));
+    }
+
+    #[test]
+    fn test_classify_leading_backslash_continuation() {
+        // A leading backslash (line continuation / alias bypass) is stripped.
+        assert_eq!(rtk_equiv("\\ git status"), Some("rtk git"));
+        assert_eq!(rtk_equiv("\\\ngit status"), Some("rtk git"));
+    }
+
+    #[test]
+    fn test_classify_kubectl_global_flags_before_subcommand() {
+        // Net-new: global flags before the subcommand must not defeat detection.
+        assert_eq!(
+            rtk_equiv("kubectl --context tools -n bot-labs get pods"),
+            Some("rtk kubectl")
+        );
+        assert_eq!(
+            rtk_equiv("kubectl -n kube-system get pods"),
+            Some("rtk kubectl")
+        );
+        assert_eq!(
+            rtk_equiv("kubectl --kubeconfig /tmp/kc --context prod get deploy"),
+            Some("rtk kubectl")
+        );
+    }
+
+    #[test]
+    fn test_rewrite_git_dash_c_preserves_flag() {
+        // Rewrite must KEEP the -C flag so the command still targets the repo.
+        assert_eq!(
+            rewrite_command("git -C /home/x status", &[]),
+            Some("rtk git -C /home/x status".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_which_wrapped_git() {
+        assert_eq!(
+            rewrite_command("$(which git) push -u origin HEAD", &[]),
+            Some("rtk git push -u origin HEAD".to_string())
+        );
+    }
+
+    #[test]
+    fn test_rewrite_kubectl_context_preserves_flag() {
+        assert_eq!(
+            rewrite_command("kubectl --context tools get pods", &[]),
+            Some("rtk kubectl --context tools get pods".to_string())
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Bucket 3: expanded git/kubectl subcommand coverage + glab classification.
+    // -----------------------------------------------------------------------
+
+    fn classify_full(cmd: &str) -> Option<(&'static str, RtkStatus, f64)> {
+        match classify_command(cmd) {
+            Classification::Supported {
+                rtk_equivalent,
+                status,
+                estimated_savings_pct,
+                ..
+            } => Some((rtk_equivalent, status, estimated_savings_pct)),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn test_classify_git_passthrough_subcommands() {
+        for sub in [
+            "checkout",
+            "switch",
+            "rebase",
+            "merge",
+            "reset",
+            "tag",
+            "cherry-pick",
+        ] {
+            let cmd = format!("git {sub} whatever");
+            let (equiv, status, savings) =
+                classify_full(&cmd).unwrap_or_else(|| panic!("{cmd} should classify"));
+            assert_eq!(equiv, "rtk git", "{cmd}");
+            assert_eq!(
+                status,
+                RtkStatus::Passthrough,
+                "{cmd} should be passthrough"
+            );
+            assert_eq!(savings, 0.0, "{cmd} passthrough has no savings");
+        }
+    }
+
+    #[test]
+    fn test_classify_git_compact_still_existing() {
+        // Regression: dedicated-filter subcommands stay Existing with real savings.
+        let (_, status, savings) = classify_full("git status").unwrap();
+        assert_eq!(status, RtkStatus::Existing);
+        assert!(savings > 0.0);
+    }
+
+    #[test]
+    fn test_classify_kubectl_passthrough_subcommands() {
+        for sub in ["config", "describe", "apply", "delete", "rollout", "scale"] {
+            let cmd = format!("kubectl {sub} something");
+            let (equiv, status, _) =
+                classify_full(&cmd).unwrap_or_else(|| panic!("{cmd} should classify"));
+            assert_eq!(equiv, "rtk kubectl", "{cmd}");
+            assert_eq!(status, RtkStatus::Passthrough, "{cmd}");
+        }
+        // get/logs keep their dedicated-filter status.
+        assert_eq!(
+            classify_full("kubectl get pods").unwrap().1,
+            RtkStatus::Existing
+        );
+    }
+
+    #[test]
+    fn test_classify_glab() {
+        // mr/ci/issue have compact filters.
+        let (equiv, status, savings) = classify_full("glab mr view 31").unwrap();
+        assert_eq!(equiv, "rtk glab");
+        assert_eq!(status, RtkStatus::Existing);
+        assert!(savings > 0.0);
+        // other subcommands pass through.
+        let (equiv, status, _) = classify_full("glab api projects/1").unwrap();
+        assert_eq!(equiv, "rtk glab");
+        assert_eq!(status, RtkStatus::Passthrough);
+    }
+
+    #[test]
+    fn test_default_status_for_heuristic() {
+        assert_eq!(default_status_for(0.0), RtkStatus::Passthrough);
+        assert_eq!(default_status_for(80.0), RtkStatus::Existing);
+    }
+
+    #[test]
+    fn test_strip_helpers_units() {
+        assert_eq!(strip_git_global_opts("git -C /tmp status"), "git status");
+        assert_eq!(strip_git_global_opts("git status"), "git status");
+        assert_eq!(
+            strip_kubectl_global_opts("kubectl --context x -n y get pods"),
+            "kubectl get pods"
+        );
+        assert_eq!(strip_absolute_path("/usr/local/bin/grep foo"), "grep foo");
+        assert_eq!(unwrap_command_substitution("$(which git) push"), "git push");
+        assert_eq!(strip_leading_continuation("\\ git status"), "git status");
     }
 
     #[test]

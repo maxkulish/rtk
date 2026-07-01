@@ -1,0 +1,36 @@
+[90m11:26:33.245[m [32mINFO  [m Downloading Terraform configurations from /private/tmp/claude-501/-Users-mk-Code-rtk/1f539f24-349e-493c-932c-c2fb42533ddd/scratchpad/tg into ./.terragrunt-cache/St1sdYRieiO-4wKLmrIje2wjJJU/0eDauxA816YBX23WQ3-w87nbwN8
+[90m11:26:33.269[m [32mINFO  [m [36mterraform: [m[0m[1mInitializing provider plugins found in the configuration...[0m[0m
+[90m11:26:33.269[m [32mINFO  [m [36mterraform: [m- Reusing previous version of hashicorp/null from the dependency lock file
+[90m11:26:33.322[m [32mINFO  [m [36mterraform: [m- Using previously-installed hashicorp/null v3.3.0
+[90m11:26:33.322[m [32mINFO  [m [36mterraform: [m[0m[1mInitializing the backend...[0m[0m
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [m[0m[1m[32mTerraform has been successfully initialized![0m[32m[0m[0m
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [m[0m[32m[0m
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [mYou may now begin working with Terraform. Try running "terraform plan" to see
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [many changes that are required for your infrastructure. All Terraform commands
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [mshould now work.
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [mIf you ever set or change modules or backend configuration for Terraform,
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [mrerun this command to reinitialize your working directory. If you forget, other
+[90m11:26:33.329[m [32mINFO  [m [36mterraform: [mcommands will detect it and remind you to do so if necessary.[0m[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m╷[0m[0m[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m│[0m [0m[1m[31mError: [0m[0m[1mCall to unknown function[0m[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m│[0m [0m[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m│[0m [0m[0m  on bad.tf line 2, in resource "null_resource" "broken":[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m│[0m [0m   2:   triggers = { x = [4mnonexistent_function[0m() }[0m[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m│[0m [0m[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m│[0m [0mThere is no function named "nonexistent_function".[0m
+[90m11:26:33.395[m [31mSTDERR[m [36mterraform: [m[31m╵[0m[0m[0m
+[90m11:26:33.396[m [32mINFO  [m TIP (debugging-docs): For help troubleshooting errors, visit https://docs.terragrunt.com/troubleshooting/debugging
+[90m11:26:33.396[m [31mERROR [m error occurred:
+
+* Failed to execute "terraform plan" in ./.terragrunt-cache/St1sdYRieiO-4wKLmrIje2wjJJU/0eDauxA816YBX23WQ3-w87nbwN8
+  [31m╷[0m[0m
+  [31m│[0m [0m[1m[31mError: [0m[0m[1mCall to unknown function[0m
+  [31m│[0m [0m
+  [31m│[0m [0m[0m  on bad.tf line 2, in resource "null_resource" "broken":
+  [31m│[0m [0m   2:   triggers = { x = [4mnonexistent_function[0m() }[0m
+  [31m│[0m [0m
+  [31m│[0m [0mThere is no function named "nonexistent_function".
+  [31m╵[0m[0m
+  
+  exit status 1
+
